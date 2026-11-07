@@ -3,7 +3,7 @@
   "os": "darwin",
   "arch": "arm64",
   "image_os": "macos26",
-  "image_version": "20261026.0455.2",
+  "image_version": "20261102.0473.1",
   "records": [
     "cache CodeQL",
     "cache Java_Temurin-Hotspot_jdk",
