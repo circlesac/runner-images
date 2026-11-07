@@ -223,7 +223,13 @@ def test_plan_build_publish_noop_and_new_inputs(fixture):
     assert cloud.plan(root, provider) == {"needed": "true", "record": "true"}
     cloud.build(root, provider)
     folder = cloud.state_path(root, provider).parent
-    assert "settings" not in json.loads((folder / "image.json").read_text())
+    evidence = json.loads((folder / "image.json").read_text())
+    assert "settings" not in evidence
+    variables = json.loads((folder / "variables.pkrvars.json").read_text())
+    assert variables["source_image"] == state["base"]
+    if provider == "gcp":
+        assert evidence["base_image"].endswith("/images/" + state["base"])
+        assert "/" not in variables["source_image"]
     report = json.loads((folder / "comparison.json").read_text())
     assert report["unexpected_missing"] == ["cmd missing-hosted-tool"]
     assert not report["compatible"]  # basic image release never claims full parity
