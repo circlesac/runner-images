@@ -2871,7 +2871,6 @@
     "env HCA_CLOUD_PROVIDER",
     "env HOMEBREW_CLEANUP_PERIODIC_FULL_DAYS",
     "env HOMEBREW_NO_AUTO_UPDATE",
-    "env INVENTORY_OUTPUT",
     "env INVOCATION_ID",
     "env ImageOS",
     "env ImageVersion",

@@ -1721,7 +1721,6 @@
     "env HOMEBREW_PREFIX",
     "env HOMEBREW_REPOSITORY",
     "env INFOPATH",
-    "env INVENTORY_OUTPUT",
     "env ImageOS",
     "env ImageVersion",
     "env JAVA_HOME",
