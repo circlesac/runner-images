@@ -113,9 +113,9 @@ The cloud destinations and trust identities are deployment configuration, never 
 | Provider | Repository variables |
 | --- | --- |
 | GCP authentication | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` |
-| GCP destination | `GCP_PROJECT`, `GCP_ZONE`, `GCP_NETWORK` |
+| GCP destination | `GCP_PROJECT`, `GCP_ZONE`, `GCP_NETWORK`, `GCP_MACHINE_TYPE` |
 | Azure authentication | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` |
-| Azure destination | `AZURE_LOCATION`, `AZURE_BUILD_RESOURCE_GROUP`, `AZURE_RESOURCE_GROUP`, `AZURE_GALLERY`, `AZURE_IMAGE_DEFINITION` |
+| Azure destination | `AZURE_LOCATION`, `AZURE_VM_SIZE`, `AZURE_BUILD_RESOURCE_GROUP`, `AZURE_RESOURCE_GROUP`, `AZURE_GALLERY`, `AZURE_IMAGE_DEFINITION` |
 
 Enable Compute Engine on the chosen GCP project and grant the build identity the instance/disk/image and dedicated-network firewall operations used by the recipe. Do not grant a VM service identity. On Azure, precreate the build/gallery groups and a generalized Linux x64 Generation 2 Ubuntu 24.04 gallery definition; scope the build identity to those groups plus required marketplace/location reads. Grant GitHub OIDC federation only for this main workflow, not arbitrary public branches. No long-lived cloud key or GitHub Secret is needed. `cloud/configure-auth.py` provisions dedicated identities from a private configuration file using an existing administrator login; it grants only the image/VM operation role on GCP and scoped build/image-definition roles plus catalog reads on Azure. It never creates cloud access keys or client passwords. Destination identities are configured outside source through repository variables; only a live workflow run establishes cloud-build evidence. Release receipts omit runtime authentication/network configuration.
 

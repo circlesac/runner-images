@@ -224,6 +224,7 @@ with tempfile.TemporaryDirectory() as directory:
         )
         variables = {
             "GCP_PROJECT": project,
+            "GCP_MACHINE_TYPE": settings.get("gcp_machine_type", "e2-standard-4"),
             "GCP_ZONE": settings["gcp_zone"],
             "GCP_NETWORK": settings["gcp_network"],
             "GCP_SERVICE_ACCOUNT": service_account,
@@ -507,6 +508,7 @@ with tempfile.TemporaryDirectory() as directory:
                     ]
                 )
         variables = {
+            "AZURE_VM_SIZE": settings["azure_vm_size"],
             "AZURE_CLIENT_ID": app["appId"],
             "AZURE_TENANT_ID": tenant,
             "AZURE_SUBSCRIPTION_ID": subscription,

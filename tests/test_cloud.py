@@ -37,11 +37,13 @@ def fixture(tmp_path, monkeypatch, request):
     )
     settings = {
         "GCP_PROJECT": "example-project",
+        "GCP_MACHINE_TYPE": "e2-standard-4",
         "GCP_ZONE": "us-central1-a",
         "GCP_NETWORK": "example-runner-network",
         "AZURE_SUBSCRIPTION_ID": "00000000-0000-0000-0000-000000000000",
         "AZURE_BUILD_RESOURCE_GROUP": "example-builds",
         "AZURE_LOCATION": "eastus",
+        "AZURE_VM_SIZE": "Standard_D4s_v5",
         "AZURE_RESOURCE_GROUP": "example-images",
         "AZURE_GALLERY": "examplegallery",
         "AZURE_IMAGE_DEFINITION": "ubuntu2404",
@@ -376,6 +378,7 @@ def test_config_and_invalid_actions_identity_fail_before_build(fixture, monkeypa
 def test_azure_build_group_must_not_hold_released_images(monkeypatch):
     for key in (
         "AZURE_SUBSCRIPTION_ID",
+        "AZURE_VM_SIZE",
         "AZURE_LOCATION",
         "AZURE_RESOURCE_GROUP",
         "AZURE_BUILD_RESOURCE_GROUP",

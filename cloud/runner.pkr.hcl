@@ -23,8 +23,10 @@ variable "builder_ip" { type = string }
 variable "gcp_project" { type = string }
 variable "gcp_zone" { type = string }
 variable "gcp_network" { type = string }
+variable "gcp_machine_type" { type = string }
 variable "azure_subscription" { type = string }
 variable "azure_location" { type = string }
+variable "azure_vm_size" { type = string }
 variable "azure_build_resource_group" { type = string }
 variable "azure_resource_group" { type = string }
 variable "azure_gallery" { type = string }
@@ -42,7 +44,8 @@ source "googlecompute" "ubuntu" {
   image_labels                    = { recipe = substr(var.input_id, 0, 40), source = var.source_commit, owner = "runner-images", build = var.build_id }
   labels                          = { owner = "runner-images", build = var.build_id }
   tags                            = [var.build_id]
-  machine_type                    = "e2-standard-4"
+  metadata                        = { enable-oslogin = "FALSE", block-project-ssh-keys = "TRUE" }
+  machine_type                    = var.gcp_machine_type
   disk_size                       = 64
   disk_type                       = "pd-balanced"
   ssh_username                    = "runnerbuilder"
@@ -58,7 +61,7 @@ source "azure-arm" "ubuntu" {
   image_offer                  = "ubuntu-24_04-lts"
   image_sku                    = "server"
   image_version                = var.source_version
-  vm_size                      = "Standard_D4s_v5"
+  vm_size                      = var.azure_vm_size
   os_disk_size_gb              = 64
   ssh_username                 = "runnerbuilder"
   allowed_inbound_ip_addresses = ["${var.builder_ip}/32"]

@@ -22,6 +22,7 @@ def test_bootstrap_binds_immutable_repository_and_workflow_without_keys(
         "azure_build_group": "example-builds",
         "azure_image_group": "example-images",
         "azure_location": "centralus",
+        "azure_vm_size": "Standard_D4s_v5",
         "azure_gallery": "examplegallery",
         "azure_definition": "example-image",
     }

@@ -29,10 +29,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PACKER_GITHUB_API_TOKEN: ${{ github.token }}
       GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      GCP_MACHINE_TYPE: ${{ vars.GCP_MACHINE_TYPE }}
       GCP_ZONE: ${{ vars.GCP_ZONE }}
       GCP_NETWORK: ${{ vars.GCP_NETWORK }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       AZURE_BUILD_RESOURCE_GROUP: ${{ vars.AZURE_BUILD_RESOURCE_GROUP }}
+      AZURE_VM_SIZE: ${{ vars.AZURE_VM_SIZE }}
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       AZURE_GALLERY: ${{ vars.AZURE_GALLERY }}

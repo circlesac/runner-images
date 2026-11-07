@@ -36,12 +36,13 @@ def config(provider: str) -> dict[str, str]:
     if provider not in ("gcp", "azure"):
         raise ValueError("unknown cloud provider")
     required = (
-        ("GCP_PROJECT", "GCP_ZONE", "GCP_NETWORK")
+        ("GCP_PROJECT", "GCP_ZONE", "GCP_NETWORK", "GCP_MACHINE_TYPE")
         if provider == "gcp"
         else (
             "AZURE_SUBSCRIPTION_ID",
             "AZURE_BUILD_RESOURCE_GROUP",
             "AZURE_LOCATION",
+            "AZURE_VM_SIZE",
             "AZURE_RESOURCE_GROUP",
             "AZURE_GALLERY",
             "AZURE_IMAGE_DEFINITION",
@@ -274,9 +275,11 @@ def build(root: Path, provider: str) -> None:
             "gcp_project",
             "gcp_zone",
             "gcp_network",
+            "gcp_machine_type",
             "azure_subscription",
             "azure_build_resource_group",
             "azure_location",
+            "azure_vm_size",
             "azure_resource_group",
             "azure_gallery",
             "azure_definition",
