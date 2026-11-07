@@ -103,7 +103,7 @@ build {
   }
   provisioner "shell" {
     only   = ["azure-arm.ubuntu"]
-    inline = ["sudo /usr/sbin/waagent -force -deprovision+user", "sudo sync"]
+    inline = ["sudo /usr/sbin/waagent -force -deprovision+user && sync"]
   }
   post-processor "manifest" {
     output     = "${var.output_directory}/packer-manifest.json"
