@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -14,7 +15,7 @@ def test_build_lifecycle_and_failure_cleanup(tmp_path):
     state.write_text(json.dumps(["base", "unrelated-image"]))
     tart = tools / "tart"
     tart.write_text("""#!/usr/bin/env python3
-import sys, os, json, time
+import sys, os, json, time, shutil
 from pathlib import Path
 a=sys.argv[1:]
 state=Path(os.environ["TEST_TART_STATE"])
@@ -26,11 +27,20 @@ if command=="list":
         print(json.dumps([{"State":status} for _ in images]))
     else: print("\\n".join(images))
     sys.exit(0)
-if command=="clone": images.append(a[2])
-if command=="delete": images.remove(a[1])
+home=Path(os.environ["TART_HOME"])/"vms"
+if command=="clone":
+    images.append(a[2])
+    directory=home/a[2]; directory.mkdir(parents=True)
+    for name in ["config.json","disk.img","nvram.bin"]:
+        (directory/name).write_bytes(b"synthetic-image-bytes")
+if command=="delete":
+    images.remove(a[1]); shutil.rmtree(home/a[1])
 if command=="rename":
     if os.environ.get("TEST_FAIL_STAGE")=="rename": sys.exit(4)
     images.remove(a[1]); images.append(a[2])
+    (home/a[1]).rename(home/a[2])
+    if os.environ.get("TEST_FAIL_STAGE")=="image-changed":
+        (home/a[2]/"disk.img").write_bytes(b"changed-after-comparison")
 if command=="stop": (state.parent/(a[1]+".stopped")).touch()
 if command=="run":
     if os.environ.get("TEST_FAIL_STAGE")=="boot": sys.exit(7)
@@ -39,11 +49,14 @@ if command=="run":
 if command=="exec":
     if os.environ.get("TEST_FAIL_STAGE")=="boot" and "/usr/bin/true" in a: sys.exit(1)
     if "cmdline-tools" in " ".join(a): print("21 12266719 35 35.0.0")
+    if "github-macos-toolset.json" in " ".join(a) and "cat " in " ".join(a):
+        print('{"example":"toolset"}')
     body=sys.stdin.read() if "-i" in a else ""
     if "brew update" in body:
         if os.environ.get("TEST_FAIL_STAGE")=="provision": sys.exit(5)
         print("/example/bin:/usr/bin:/bin")
     if "Missing hosted tool cache entry" in body:
+        print("synthetic native checks passed")
         if os.environ.get("TEST_FAIL_STAGE")=="verify": sys.exit(6)
     if "json.dumps(collect()" in body:
         print(json.dumps({"schema_version":1,"os":"darwin","arch":"arm64",
@@ -62,16 +75,51 @@ state.write_text(json.dumps(images))
         + "a" * 64
         + "\"}]}'",
     }
+    commands["git"] = """
+case "$*" in
+ *rev-parse*) echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
+ *status*) if [ "$TEST_FAIL_STAGE" = dirty ]; then echo " M recipe"; fi ;;
+esac
+"""
+    reference = tmp_path / "reference.json"
+    allowlist = tmp_path / "allowlist.txt"
+    allowlist.write_text("")
     for name, script in commands.items():
         (tools / name).write_text("#!/bin/sh\n" + script + "\n")
     for path in tools.iterdir():
         path.chmod(0o755)
-    for failure in ("capacity", "boot", "provision", "verify", "rename", "", "android"):
+    for failure in (
+        "dirty",
+        "capacity",
+        "boot",
+        "provision",
+        "verify",
+        "parity",
+        "rename",
+        "image-changed",
+        "",
+        "android",
+    ):
+        reference.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "os": "darwin",
+                    "arch": "arm64",
+                    "image_os": "macos26",
+                    "image_version": "reference-build",
+                    "records": ["cmd bash", "cmd rustc"]
+                    if failure == "parity"
+                    else ["cmd bash"],
+                }
+            )
+        )
         image = f"test-image-{tmp_path.name}-{failure or 'success'}"
         env = {
             **os.environ,
             "PATH": str(tools) + os.pathsep + os.environ["PATH"],
             "TEST_TART_STATE": str(state),
+            "TART_HOME": str(tmp_path / "tart"),
             "TEST_FAIL_STAGE": "" if failure == "android" else failure,
         }
         result = subprocess.run(
@@ -81,6 +129,9 @@ state.write_text(json.dumps(images))
                 image,
                 "base",
                 "xcode-android" if failure == "android" else "xcode",
+                "/Users/admin/actions-runner",
+                str(reference),
+                str(allowlist),
             ],
             env=env,
             capture_output=True,
@@ -90,14 +141,19 @@ state.write_text(json.dumps(images))
         images = json.loads(state.read_text())
         assert "base" in images and "unrelated-image" in images
         assert not any("-build-" in name for name in images)
-        receipt = root / "artifacts/tart" / f"{image}.json"
+        bundle = root / "artifacts/tart" / image
+        receipt = bundle / "qualification.json"
         if failure and failure != "android":
             assert result.returncode != 0, result.stdout + result.stderr
             assert image not in images
+            assert not receipt.exists()
         else:
             assert result.returncode == 0, result.stdout + result.stderr
             assert image in images
-            assert json.loads(receipt.read_text())["records"] == ["cmd bash"]
+            assert json.loads(receipt.read_text())["status"] == "passed"
+            assert json.loads((bundle / "inventory.json").read_text())["records"] == [
+                "cmd bash"
+            ]
             repeated = subprocess.run(
                 ["bash", str(root / "macos/build-image.sh"), image, "base"],
                 env=env,
@@ -105,7 +161,7 @@ state.write_text(json.dumps(images))
             )
             assert repeated.returncode != 0
             assert json.loads(state.read_text()) == images
-        receipt.unlink(missing_ok=True)
+        shutil.rmtree(bundle, ignore_errors=True)
 
 
 @pytest.mark.parametrize(

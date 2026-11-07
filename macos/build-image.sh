@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: bash macos/build-image.sh IMAGE [BASE] [xcode|xcode-android] [RUNNER_DIR]
+# Usage: bash macos/build-image.sh IMAGE [BASE] [xcode|xcode-android] [RUNNER_DIR] [REFERENCE_JSON] [ALLOWLIST]
 # Builds an unregistered local Tart image; does not change any running fleet.
 set -euo pipefail
 
@@ -10,6 +10,17 @@ image=${1:?A new local image name is required}
 base=${2:-ghcr.io/cirruslabs/macos-tahoe-xcode:latest}
 profile=${3:-xcode}
 runner_dir=${4:-/Users/admin/actions-runner}
+reference=${5:-$root/snapshots/github-hosted/macos-26.json}
+allowlist=${6:-$root/macos/accepted-missing/$profile.txt}
+tart_home=${TART_HOME:-$HOME/.tart}
+bundle="$root/artifacts/tart/$image"
+source_revision=$(git -C "$root" rev-parse HEAD)
+reference_revision=$(git -C "$(dirname "$reference")" rev-parse HEAD)
+[[ -z $(git -C "$root" status --porcelain) ]] || {
+	echo 'Commit the image recipe before building a qualified image.' >&2
+	exit 1
+}
+[[ -f "$reference" && -f "$allowlist" && ! -e "$bundle" ]]
 [[ "$image" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && "$image" != "$base" ]]
 [[ "$profile" == xcode || "$profile" == xcode-android ]]
 [[ "$runner_dir" =~ ^/Users/[A-Za-z0-9_-]+/[A-Za-z0-9._/-]+$ ]]
@@ -34,6 +45,8 @@ temporary="${image}-build-$(date +%s)-$$"
 build_log=$(mktemp "${TMPDIR:-/tmp}/runner-image-build.XXXXXX")
 build_pid=''
 running=false
+published=false
+qualified=false
 cleanup() {
 	status=$?
 	if [[ "$running" == true ]]; then
@@ -42,6 +55,7 @@ cleanup() {
 	fi
 	if image_exists "$temporary"; then tart delete "$temporary" >/dev/null 2>&1 || true; fi
 	if ((status != 0)); then
+		if [[ "$published" == true && "$qualified" == false ]]; then tart delete "$image" >/dev/null 2>&1 || true; fi
 		echo "Image build failed; previous images are preserved. Tart log: $build_log" >&2
 	else
 		rm -f "$build_log"
@@ -52,7 +66,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 if ! image_exists "$base"; then tart pull "$base"; fi
+mkdir -p "$bundle"
+cp "$reference" "$bundle/reference.json"
+cp "$allowlist" "$bundle/accepted-missing.txt"
 tart clone "$base" "$temporary"
+python3 "$root/scripts/image-fingerprint.py" "$tart_home/vms/$temporary" >"$bundle/base-fingerprint.json"
 tart set "$temporary" --cpu 4 --memory 8192
 bridge=$(select_tart_bridge_interface)
 tart run "$temporary" --no-graphics --net-bridged "$bridge" >"$build_log" 2>&1 &
@@ -110,28 +128,42 @@ guest_job() {
     exec "$@"
   ' -- "$runner_dir" "$@"
 }
-guest_job /bin/bash -s <"$root/macos/image/verify-toolchain.sh"
+guest_job /bin/bash -s <"$root/macos/image/verify-toolchain.sh" 2>&1 | tee "$bundle/toolchain-check.txt"
 if [[ "$profile" == xcode-android ]]; then
 	# shellcheck disable=SC2016 # The quoted paths are evaluated inside the guest.
 	guest_job /bin/bash -c '
     "$HOME/android-sdk/platform-tools/adb" version
     "$HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager" --version
-  ' </dev/null
+  ' </dev/null 2>&1 | tee -a "$bundle/toolchain-check.txt"
 fi
 
-mkdir -p "$root/artifacts/tart"
 {
 	cat "$root/runner_images/inventory.py"
 	printf '\nimport json\nprint(json.dumps(collect(), indent=2))\n'
-} | guest_job python3 - >"$root/artifacts/tart/$image.json"
+} | guest_job python3 - >"$bundle/inventory.json"
+# Preserve the exact upstream toolset used by this build with the comparison inputs.
+# shellcheck disable=SC2016 # HOME is evaluated inside the guest.
+guest_job /bin/bash -c 'cat "$HOME/.runner-image/github-macos-toolset.json"' </dev/null >"$bundle/toolset.json"
 tart exec "$temporary" /usr/bin/sync
 tart stop "$temporary" --timeout 120
 wait "$build_pid" || true
 running=false
+[[ $(git -C "$root" rev-parse HEAD) == "$source_revision" && -z $(git -C "$root" status --porcelain) ]] || {
+	echo 'Image recipe changed during the build; refusing qualification.' >&2
+	exit 1
+}
+python3 "$root/scripts/qualify-image.py" "$bundle" "$tart_home/vms/$temporary" \
+	--image "$image" --profile "$profile" --base "$base" \
+	--source-commit "$source_revision" --reference-commit "$reference_revision" \
+	--runner-version "$version" \
+	--run-url "${GITHUB_SERVER_URL:+$GITHUB_SERVER_URL/${GITHUB_REPOSITORY:?}/actions/runs/${GITHUB_RUN_ID:?}}"
 # Recheck in case another process created the destination while we built.
 if image_exists "$image"; then
 	echo 'Destination appeared during build.' >&2
 	exit 1
 fi
 tart rename "$temporary" "$image"
-echo "Prepared local image $image; inventory: artifacts/tart/$image.json"
+published=true
+python3 "$root/scripts/finalize-image.py" "$bundle" "$tart_home/vms/$image"
+qualified=true
+echo "Qualified local image $image; evidence: artifacts/tart/$image/qualification.json"
