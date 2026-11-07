@@ -73,6 +73,11 @@ def qualify(bundle: Path, image_directory: Path, metadata: dict[str, str]) -> No
         "toolchain_check_sha256": digest(bundle / "toolchain-check.txt"),
         "comparison": result,
     }
+    if (bundle / "sbom.spdx.json").exists():
+        sbom = read_object(bundle / "sbom.spdx.json")
+        if sbom.get("spdxVersion") != "SPDX-2.3" or not sbom.get("packages"):
+            raise ValueError("empty or invalid image SBOM")
+        receipt["sbom_sha256"] = digest(bundle / "sbom.spdx.json")
     target = bundle / "comparison-passed.json"
     if target.exists():
         raise ValueError("qualification receipt already exists")
@@ -118,7 +123,12 @@ def record(bundle: Path, repository: Path, source_commit: str) -> Path:
         if isinstance(image, str)
         else None
     )
-    if (
+    local_build = (
+        isinstance(image, str)
+        and re.fullmatch(f"macos-26-{profile}-local-[a-f0-9]{{32}}", image)
+        and run_url == ""
+    )
+    if not local_build and (
         not match
         or run_url
         != f"https://github.com/circlesac/runner-images/actions/runs/{match.group(1)}"
@@ -179,21 +189,30 @@ def record(bundle: Path, repository: Path, source_commit: str) -> Path:
             for v in values.values()
         ):
             raise ValueError("invalid image identity")
+    if (
+        "sbom_sha256" in receipt
+        and digest(bundle / "sbom.spdx.json") != receipt["sbom_sha256"]
+    ):
+        raise ValueError("image SBOM was changed")
     # A content-addressed directory preserves every verified build without overwriting.
     identity = digest(bundle / "qualification.json")
     destination = repository / f"qualifications/tart/{profile}/{identity}"
-    for name in (
+    files = (
         "qualification.json",
         "inventory.json",
         "toolset.json",
         "toolchain-check.txt",
-    ):
+    )
+    if "sbom_sha256" in receipt:
+        files += ("sbom.spdx.json",)
+    for name in files:
         target = destination / name
         content = (bundle / name).read_bytes()
         if target.exists() and target.read_bytes() != content:
             raise ValueError("qualification record is immutable")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
+    build_link = f"[Actions run]({run_url})" if run_url else "local Apple Silicon Mac"
     summary = (
         f"# Verified Tart image\n\n"
         f"- Image: `{image}` ({profile})\n"
@@ -201,7 +220,7 @@ def record(bundle: Path, repository: Path, source_commit: str) -> Path:
         "- Recipe: [source commit]"
         f"(https://github.com/circlesac/runner-images/tree/{source_commit})\n"
         f"- Reference revision: `{source_commit}`\n"
-        f"- Build: [Actions run]({run_url})\n"
+        f"- Build: {build_link}\n"
         f"- GitHub runner: {runner_version}\n\n"
         "Native checks and the reviewed capability comparison passed. "
         "The stopped image files matched their comparison-time SHA256 hashes. "

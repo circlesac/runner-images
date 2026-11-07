@@ -14,7 +14,7 @@ def input_id(root: Path, profile: str) -> str:
         raise ValueError("unknown profile")
     # Hash build inputs, excluding generated evidence and Linux observations.
     names = [
-        ".github/workflows/build-macos.yml",
+        ".github/workflows/release-tart.yml",
         "snapshots/github-hosted/macos-26.json",
         f"macos/accepted-missing/{profile}.txt",
     ]
@@ -81,28 +81,36 @@ def reconcile(root: Path) -> None:
         ]
         uploaded: dict[str, object] | None = None
         for path in sorted(
-            (root / f"qualifications/tart/{profile}").glob("*/publication.json")
+            (root / f"qualifications/tart/{profile}").glob("*/release.json")
         ):
             receipt = read_object(path)
             if (
                 receipt.get("input_id") == desired
-                and receipt.get("status") == "uploaded"
+                and receipt.get("status") == "released"
             ):
                 uploaded = receipt
+        command = (
+            "(bootstrap=$(mktemp) && trap 'rm -f \"$bootstrap\"' EXIT && "
+            "gh api -H 'Accept: application/vnd.github.raw+json' "
+            "'repos/circlesac/runner-images/contents/macos/rebuild.sh?ref=main' "
+            f'> "$bootstrap" && bash "$bootstrap" {profile})'
+        )
         body = (
             f"{marker}\n## Rebuild Tart image: {profile}\n\n"
             f"Required inputs: `{desired}`\n\n"
-            "The macOS reference or build recipe needs a verified registry candidate. "
-            "[Run the main-branch build workflow]"
-            "(https://github.com/circlesac/runner-images/actions/workflows/"
-            "build-macos.yml) "
-            f"with profile `{profile}`.\n\n"
-            "This issue closes automatically only after build, comparison, upload, "
-            "registry read-back and Git evidence recording succeed for these inputs. "
-            "Failures leave it open; newer inputs still require a new build.\n"
+            "Run this one command in a terminal on your Apple Silicon Mac:\n\n"
+            f"```sh\n{command}\n```\n\n"
+            "It prepares an isolated checkout, builds and checks the image, "
+            "uploads it, records evidence and waits for GitHub to publish the "
+            "release and close this issue. Existing gh authentication is reused; "
+            "required Homebrew tools are installed automatically. "
+            "Run the same command again after an interruption to resume.\n\n"
+            "Failures keep this issue open. A newer reference/recipe remains "
+            "outstanding even if an older build finishes.\n"
         )
         if uploaded:
-            body += f"\nUploaded candidate: `{uploaded['reference']}`\n"
+            body += f"\nReleased image: `{uploaded['reference']}`\n"
+            body += f"\n[GitHub Release]({uploaded['url']})\n"
         state = "closed" if uploaded else "open"
         if not matching:
             if not uploaded:

@@ -11,7 +11,7 @@ from runner_images import rebuild
 @pytest.fixture
 def root(tmp_path):
     for name in (
-        ".github/workflows/build-macos.yml",
+        ".github/workflows/release-tart.yml",
         "snapshots/github-hosted/macos-26.json",
         "macos/accepted-missing/xcode.txt",
         "macos/accepted-missing/xcode-android.txt",
@@ -60,13 +60,14 @@ def api(monkeypatch):
 
 
 def publication(root, profile, identity=None):
-    target = root / f"qualifications/tart/{profile}/example/publication.json"
+    target = root / f"qualifications/tart/{profile}/example/release.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         json.dumps(
             {
                 "input_id": identity or rebuild.input_id(root, profile),
-                "status": "uploaded",
+                "status": "released",
+                "url": "https://example.com/release",
                 "reference": "ghcr.io/example/image@sha256:example",
             }
         )
@@ -104,8 +105,8 @@ def test_old_build_cannot_close_new_request_and_failed_upload_stays_open(root, a
     publication(root, "xcode", old)
     rebuild.reconcile(root)
     assert state[1]["state"] == "open"
-    path = next((root / "qualifications/tart/xcode").glob("*/publication.json"))
-    path.write_text(path.read_text().replace("uploaded", "failed"))
+    path = next((root / "qualifications/tart/xcode").glob("*/release.json"))
+    path.write_text(path.read_text().replace("released", "failed"))
     rebuild.reconcile(root)
     assert state[1]["state"] == "open"
 
@@ -193,3 +194,59 @@ def test_all_issue_writers_share_serialization_and_trusted_source():
     assert "workflow_run" in workflow and "!= 'pull_request'" in workflow
     # Multiple completion events and the schedule are coalesced by Actions;
     # the lifecycle tests above replay their actual handler against durable state.
+
+
+def test_uploaded_candidate_without_release_keeps_issue_open(root, api):
+    state, _ = api
+    rebuild.reconcile(root)
+    publication(root, "xcode")
+    released = next((root / "qualifications/tart/xcode").glob("*/release.json"))
+    value = json.loads(released.read_text())
+    value["status"] = "uploaded"
+    released.with_name("publication.json").write_text(json.dumps(value))
+    released.unlink()
+    rebuild.reconcile(root)
+    assert state[1]["state"] == "open"
+    assert "```sh" in state[1]["body"] and 'bash "$bootstrap" xcode' in state[1]["body"]
+
+
+@pytest.mark.parametrize("download_failure", [False, True])
+def test_issue_command_executes_profile_and_propagates_download_failure(
+    root, api, tmp_path, download_failure
+):
+    import os
+
+    state, _ = api
+    rebuild.reconcile(root)
+    command = state[1]["body"].split("```sh\n")[1].split("\n```")[0]
+    tools = tmp_path / "tools"
+    scratch = tmp_path / "scratch"
+    tools.mkdir()
+    scratch.mkdir()
+    gh = tools / "gh"
+    gh.write_text(
+        "#!/bin/sh\n"
+        + (
+            "exit 7\n"
+            if download_failure
+            else "cat <<'BOOTSTRAP'\nprintf 'profile=%s\\n' \"$1\"\nBOOTSTRAP\n"
+        )
+    )
+    gh.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", command],
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+            "TMPDIR": str(scratch),
+        },
+    )
+    if download_failure:
+        assert result.returncode == 7
+        assert not result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "profile=xcode\n"
+    assert not list(scratch.iterdir())

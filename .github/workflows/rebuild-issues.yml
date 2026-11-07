@@ -7,7 +7,7 @@ on:
     - cron: "45 0 * * *"
   # GITHUB_TOKEN snapshot/evidence commits do not trigger push workflows.
   workflow_run:
-    workflows: [Hosted reference inventories, Build and qualify Tart image]
+    workflows: [Hosted reference inventories, Release verified Tart image]
     types: [completed]
 permissions:
   contents: read

@@ -229,3 +229,31 @@ def test_native_check_evidence_is_required(example):
     with pytest.raises(ValueError):
         qualify(bundle, image, metadata)
     assert not (bundle / "comparison-passed.json").exists()
+
+
+def test_local_receipt_binds_sbom_and_preserves_immutable_copy(example):
+    repo, bundle, image, metadata = example
+    metadata.update(image="macos-26-xcode-local-" + "c" * 32, run_url="")
+    path = bundle / "sbom.spdx.json"
+    path.write_text('{"spdxVersion":"SPDX-2.3","packages":[{"name":"example"}]}')
+    qualify(bundle, image, metadata)
+    finalize(bundle, image)
+    destination = record(bundle, repo, metadata["source_commit"])
+    assert "local Apple Silicon Mac" in (destination / "README.md").read_text()
+    assert (destination / path.name).read_bytes() == path.read_bytes()
+    original = path.read_text()
+    path.write_text("{}")
+    with pytest.raises(ValueError, match="SBOM"):
+        record(bundle, repo, metadata["source_commit"])
+    path.write_text(original)
+    (destination / path.name).write_text("immutable existing evidence")
+    with pytest.raises(ValueError, match="immutable"):
+        record(bundle, repo, metadata["source_commit"])
+
+
+def test_empty_guest_sbom_cannot_receive_qualification(example):
+    _, bundle, image, metadata = example
+    (bundle / "sbom.spdx.json").write_text('{"spdxVersion":"SPDX-2.3","packages":[]}')
+    with pytest.raises(ValueError, match="SBOM"):
+        qualify(bundle, image, metadata)
+    assert not (bundle / "comparison-passed.json").exists()

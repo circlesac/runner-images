@@ -12,7 +12,7 @@ from runner_images.rebuild import input_id
 
 def prepare(example):
     root, bundle, image, metadata = example
-    path = root / ".github/workflows/build-macos.yml"
+    path = root / ".github/workflows/release-tart.yml"
     path.parent.mkdir(parents=True)
     path.write_text("synthetic workflow")
     qualify(bundle, image, metadata)

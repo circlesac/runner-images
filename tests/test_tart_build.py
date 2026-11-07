@@ -55,6 +55,9 @@ if command=="exec":
     if "brew update" in body:
         if os.environ.get("TEST_FAIL_STAGE")=="provision": sys.exit(5)
         print("/example/bin:/usr/bin:/bin")
+    if "syft scan dir:/" in body:
+        print(json.dumps({"spdxVersion":"SPDX-2.3", "packages":[{"name":"synthetic"}]}))
+        if os.environ.get("TEST_FAIL_STAGE")=="sbom": sys.exit(8)
     if "Missing hosted tool cache entry" in body:
         print("synthetic native checks passed")
         if os.environ.get("TEST_FAIL_STAGE")=="verify": sys.exit(6)
@@ -94,6 +97,7 @@ esac
         "boot",
         "provision",
         "verify",
+        "sbom",
         "parity",
         "rename",
         "image-changed",

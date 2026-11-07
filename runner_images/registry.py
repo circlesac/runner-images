@@ -23,7 +23,8 @@ def fetch(url: str, headers: dict[str, str]) -> bytes:
 def manifest(reference: str, qualification_hash: str, inputs: str) -> str:
     match = re.fullmatch(
         r"ghcr.io/(circlesac/runner-images/macos-26-(?:xcode|xcode-android))"
-        r"(?::(macos-26-[a-z-]+-[0-9]+-[0-9]+)|@(sha256:[a-f0-9]{64}))",
+        r"(?::(macos-26-[a-z-]+-(?:[0-9]+-[0-9]+|local-[a-f0-9]{32}))"
+        r"|@(sha256:[a-f0-9]{64}))",
         reference,
     )
     if not match:

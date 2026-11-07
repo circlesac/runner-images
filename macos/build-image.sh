@@ -128,6 +128,7 @@ guest_job() {
     exec "$@"
   ' -- "$runner_dir" "$@"
 }
+guest_job /bin/bash -s <"$root/macos/image/collect-sbom.sh" >"$bundle/sbom.spdx.json"
 guest_job /bin/bash -s <"$root/macos/image/verify-toolchain.sh" 2>&1 | tee "$bundle/toolchain-check.txt"
 if [[ "$profile" == xcode-android ]]; then
 	# shellcheck disable=SC2016 # The quoted paths are evaluated inside the guest.

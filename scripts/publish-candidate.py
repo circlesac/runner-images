@@ -2,8 +2,10 @@
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -18,7 +20,11 @@ if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
     raise SystemExit("Upload requires the clean, committed recipe used by the build.")
 revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 # Independently validate all evidence before the first registry write.
-record(args.bundle, root, revision)
+with tempfile.TemporaryDirectory() as temporary:
+    trusted = Path(temporary)
+    for directory in ("macos/accepted-missing", "snapshots/github-hosted"):
+        shutil.copytree(root / directory, trusted / directory)
+    record(args.bundle, trusted, revision)
 image = read_object(args.bundle / "qualification.json")["build"]["image"]
 tart_home = Path(os.environ.get("TART_HOME", str(Path.home() / ".tart")))
 publish(args.bundle, root, tart_home / "vms" / image)
