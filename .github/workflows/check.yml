@@ -41,6 +41,12 @@ jobs:
       - uses: hashicorp/setup-packer@v3.4.0
         with:
           version: "1.16.2"
+      - uses: anchore/sbom-action/download-syft@v0
+        id: syft
+      - name: Check guest exclusions with the actual SBOM collector
+        env:
+          SYFT_BIN: ${{ steps.syft.outputs.cmd }}
+        run: python3 scripts/check-sbom.py "$SYFT_BIN"
       - name: Validate both cloud recipes without authentication or resources
         env:
           PACKER_GITHUB_API_TOKEN: ${{ github.token }}

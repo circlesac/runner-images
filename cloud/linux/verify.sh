@@ -31,7 +31,7 @@ with open('/tmp/runner-evidence/inventory.json', 'w') as stream:
     json.dump(collect(), stream, indent=2)
 PY
 sudo syft scan dir:/ \
-	--exclude '/proc/**' --exclude '/sys/**' --exclude '/dev/**' \
-	--exclude '/tmp/**' --exclude '/var/log/**' --exclude '/var/lib/cloud/**' \
-	--exclude '/var/lib/waagent/**' --exclude '/root/**' \
-	--exclude '/home/**/.ssh/**' -o spdx-json | tee /tmp/runner-evidence/sbom.spdx.json >/dev/null
+	--exclude './proc/**' --exclude './sys/**' --exclude './dev/**' \
+	--exclude './tmp/**' --exclude './var/log/**' --exclude './var/lib/cloud/**' \
+	--exclude './var/lib/waagent/**' --exclude './root/**' \
+	--exclude './home/**/.ssh/**' -o spdx-json | tee /tmp/runner-evidence/sbom.spdx.json >/dev/null

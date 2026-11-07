@@ -3,6 +3,6 @@
 set -euo pipefail
 brew install syft >&2
 syft scan dir:/ --scope all-layers \
-	--exclude '/dev/**' --exclude '/System/**' --exclude '/private/**' \
-	--exclude '/Volumes/**' --exclude '/Users/admin/Library/**' \
+	--exclude './dev/**' --exclude './System/**' --exclude './private/**' \
+	--exclude './Volumes/**' --exclude './Users/admin/Library/**' \
 	-o spdx-json

@@ -177,6 +177,17 @@ def test_bootstrap_binds_immutable_repository_and_workflow_without_keys(
     assert "claims['repository_id'] eq '42'" in expression
     assert "claims['repository_owner_id'] eq '7'" in expression
     assert "cloud-image.yml@refs/heads/main" in expression
+    network_binding = next(
+        c
+        for c in state["calls"]
+        if any("runnerImagesNetworkPolicy" in a for a in c)
+        and "add-iam-policy-binding" in c
+    )
+    assert any(
+        "resource.name == 'projects/example-project/global/networks/example-network'"
+        in a
+        for a in network_binding
+    )
     assert len(state["assignments"]) == 4
     assert not any(
         "secret" in " ".join(c).lower() or "keys" in c for c in state["calls"]

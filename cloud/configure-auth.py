@@ -169,6 +169,38 @@ with tempfile.TemporaryDirectory() as directory:
             "--role=projects/" + project + "/roles/runnerImagesBuilder",
             "--condition=None",
         )
+        network_role = document(
+            "gcp-network-role.json",
+            {
+                "title": "Runner Images Network Policy",
+                "stage": "GA",
+                "description": "Firewall policy for the dedicated build network only",
+                "includedPermissions": ["compute.networks.updatePolicy"],
+            },
+        )
+        network_role_exists = gcp(
+            "iam", "roles", "list", "--filter=name:runnerImagesNetworkPolicy"
+        )
+        gcp(
+            "iam",
+            "roles",
+            "update" if network_role_exists else "create",
+            "runnerImagesNetworkPolicy",
+            "--file=" + network_role,
+        )
+        network_name = (
+            "projects/" + project + "/global/networks/" + settings["gcp_network"]
+        )
+        gcp(
+            "projects",
+            "add-iam-policy-binding",
+            project,
+            "--member=serviceAccount:" + service_account,
+            "--role=projects/" + project + "/roles/runnerImagesNetworkPolicy",
+            "--condition=title=runner-images-network,expression=resource.name == '"
+            + network_name
+            + "'",
+        )
         pool = "runner-images"
         pools = gcp(
             "iam",
