@@ -1,6 +1,6 @@
 # Runner images
 
-Inspect and compare GitHub Actions runner images on local machines and cloud VMs. Collect hosted references, build local Apple Silicon Tart images, and compare actual capabilities on Linux and macOS. GCP/Azure provisioning and complete version/runtime equivalence remain outside the initial scope.
+Inspect and compare GitHub Actions runner images on local machines and cloud VMs. Collect hosted references, build local Apple Silicon Tart images, and compare actual capabilities on Linux and macOS. GCP/Azure Ubuntu base-image builds and releases run automatically in Actions after their OIDC identities and destinations are configured. Complete version/runtime equivalence remains outside the current qualification.
 
 ## What is measured
 
@@ -92,6 +92,41 @@ The VM itself is stored as `ghcr.io/circlesac/runner-images/macos-26-PROFILE:mac
 
 The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. This PR implements the command and workflow; the first real local build/upload/release remains to be run after merge. Public PR checks use hosted runners and controlled external-boundary fixtures.
 
+## Automatic GCP and Azure images
+
+[Release cloud runner images](.github/workflows/release-cloud.yml) owns the entire cloud path. It resolves the current Ubuntu 24.04 x86-64 base on each provider, hashes that concrete base ID together with the versioned hosted reference, destination and cloud recipe, and skips unchanged released inputs. It runs on relevant main changes, successful trusted hosted-reference completion (including workflow-token snapshot commits), daily at **10:00 KST**, and optional manual dispatch. Cloud automatic publication is explicitly requested for this repository; the macOS path keeps its local-command/manual release contract. PRs cannot authenticate to clouds, build images or publish releases.
+
+Packer uses one shared Linux provision/verification recipe. It installs the basic C/C++/CMake, Git, Python, Node, Go, Java, Rust and Docker tools plus a checksum-verified unregistered GitHub runner. It executes native compile/runtime smoke checks and Docker daemon checks inside the provisioning VM, captures actual capabilities and a guest SBOM, downloads evidence, removes provisioning SSH authorization and temporary installers, and generalizes the image. The VM has no repository registration credentials; GCP has no default VM service account. GCP SSH ingress is restricted to the Actions builder's address on the configured dedicated network; Azure restricts temporary ingress to that address too.
+
+GCP stores a new uniquely named Compute Engine image. Azure stores a CalVer image version in the configured Compute Gallery. Independent cloud read-back checks readiness, build ownership and source/recipe tags; the Packer manifest must identify the expected artifact. Grype scanning and signed image-metadata/SBOM attestations precede GitHub Release publication. The release binds the provider's concrete image ID, source/base revisions, input fingerprint and checksummed evidence; `cloud-gcp@YY.MM.MICRO` and `cloud-azure@YY.MM.MICRO` have separate oneup version sequences. Signed subjects hash the image metadata, not an unmeasured cloud disk's bytes.
+
+This initial cloud profile is **provisioning-smoke qualified**, not full GitHub-hosted parity or a fresh-image boot/real Actions-job test. The hosted comparison report is attached even when it reports missing capabilities; its differences are informational for this base profile. Release notes explicitly state those boundaries. Native smoke, evidence integrity, cloud identity/readiness, vulnerability gates and release asset checks are mandatory. Fresh-image boot and real Actions-job testing are a separate next stage.
+
+There are **no cloud rebuild issues**. Provider builds are serialized independently. Identical successful runs do not create another VM or release. A published release whose final Git commit failed is recovered from its checksummed image receipt and cloud read-back. Successful Git records live under `qualifications/cloud/PROVIDER/INPUT_SHA256/`; artifacts retain provisioning/release/cleanup diagnostics. Cloud changes do not request a macOS rebuild.
+
+Each job always attempts to remove its owned temporary VM/network/disk resources and any image that never reached a published release. Packer cleanup is reinforced with explicit provider cleanup. Azure uses a dedicated precreated build resource group, separate from the gallery group, so the identity need not create arbitrary subscription resource groups. Cleanup filters the exact build ownership tag; it refuses foreign resources and reports incomplete deletion as a failed job. Images referenced by a published release are preserved even if Git recording fails. Later scheduled no-op runs also retry temporary cleanup for the released build. Images from previous releases are retained; retaining those images has storage cost. As with any runner-local finalizer, a lost runner can prevent its cleanup step from executing; diagnostics and resource ownership tags identify that recovery work.
+
+### Cloud setup
+
+The cloud destinations and trust identities are deployment configuration, never secrets baked into source or images. GitHub authenticates with OIDC scoped to this repository, this cloud workflow and `refs/heads/main`. Use a dedicated GCP network without a broad preexisting SSH allow rule. Configure these repository variables before merging/enabling automatic cloud builds:
+
+| Provider | Repository variables |
+| --- | --- |
+| GCP authentication | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` |
+| GCP destination | `GCP_PROJECT`, `GCP_ZONE`, `GCP_NETWORK` |
+| Azure authentication | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` |
+| Azure destination | `AZURE_LOCATION`, `AZURE_BUILD_RESOURCE_GROUP`, `AZURE_RESOURCE_GROUP`, `AZURE_GALLERY`, `AZURE_IMAGE_DEFINITION` |
+
+Enable Compute Engine on the chosen GCP project and grant the build identity the instance/disk/image and dedicated-network firewall operations used by the recipe. Do not grant a VM service identity. On Azure, precreate the build/gallery groups and a generalized Linux x64 Generation 2 Ubuntu 24.04 gallery definition; scope the build identity to those groups plus required marketplace/location reads. Grant GitHub OIDC federation only for this main workflow, not arbitrary public branches. No long-lived cloud key or GitHub Secret is needed. Destination confirmation and live cloud-identity setup remain pending; no live cloud build is established by fixture tests.
+
+To validate recipes locally without credentials/resources:
+
+```sh
+python3 scripts/check-cloud.py
+```
+
+This uses Packer 1.16.2 with Google Compute 1.2.9 and Azure 2.6.5 plugins. `packer init` installs the declared compatible plugin versions. The public PR gate validates both real plugin schemas using only synthetic destination values in `cloud/validation.pkrvars.json`. The same Python `scripts/cloud-image.py` phases run in Actions or locally with explicit destination variables and an authenticated cloud CLI; authenticated live execution incurs cloud costs.
+
 ## Development and verification
 
 ```sh
@@ -111,7 +146,7 @@ Install ShellCheck and shfmt with your system package manager. The gate runs for
 | Pyright | 1.1.414 | 2026-09-10 | Strict typed collection/comparison boundary |
 | shfmt / ShellCheck | 3.14.1 / 0.11.0 locally | Distribution packages in CI | Maintained native shell formatter/linter; avoids an interpreter-based formatter or bashate lint pipeline |
 
-`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. Cloud provisioning, Windows, version-level probes and official upstream test integration are future work.
+`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. Fresh-image cloud boot/Actions validation, Windows, version-level probes and official upstream test integration remain future work.
 
 ## Related projects
 

@@ -25,7 +25,10 @@ def input_id(root: Path, profile: str) -> str:
         ("scripts", "*.sh"),
     ):
         names.extend(
-            str(p.relative_to(root)) for p in (root / directory).rglob(pattern)
+            str(p.relative_to(root))
+            for p in (root / directory).rglob(pattern)
+            if p.name
+            not in ("cloud.py", "cloud-image.py", "commit-cloud.sh", "check-cloud.py")
         )
     result = hashlib.sha256(profile.encode())
     for name in sorted(set(names)):
