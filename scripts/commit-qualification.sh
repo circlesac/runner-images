@@ -5,7 +5,7 @@ bundle=${1:?Qualification bundle is required}
 branch=${2:?Destination branch is required}
 test "$(git branch --show-current)" = "$branch"
 test -z "$(git status --porcelain)"
-python3 scripts/record-qualification.py "$bundle" "$PWD"
+python3 scripts/record-qualification.py "$bundle" "$PWD" "${@:3}"
 git add -- qualifications/tart
 if git diff --cached --quiet; then
 	echo 'This exact image qualification is already recorded.'
