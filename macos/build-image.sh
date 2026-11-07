@@ -100,27 +100,30 @@ tart exec "$temporary" /bin/bash -c '
   printf "ImageOS=macos%s\nImageVersion=%s\nRUNNER_TOOL_CACHE=%s/hostedtoolcache\nAGENT_TOOLSDIRECTORY=%s/hostedtoolcache\nCARGO_HOME=%s/.cargo\nRUSTUP_HOME=%s/.rustup\n" \
     "$(sw_vers -productVersion | cut -d. -f1)" "$(date -u +%Y%m%d.%H%M)" "$HOME" "$HOME" "$HOME" "$HOME" >>"$1/.env"
 ' -- "$runner_dir"
-# shellcheck disable=SC2016 # The quoted variables are evaluated inside the guest.
-tart exec -i "$temporary" /bin/bash -c '
-  set -euo pipefail
-  while IFS="=" read -r key value; do export "$key=$value"; done <"$1/.env"
-  exec /bin/bash -s
-' -- "$runner_dir" <"$root/macos/image/verify-toolchain.sh"
-if [[ "$profile" == xcode-android ]]; then
+guest_job() {
 	# shellcheck disable=SC2016 # The quoted variables are evaluated inside the guest.
-	tart exec "$temporary" /bin/bash -c '"$HOME/android-sdk/platform-tools/adb" version; "$HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager" --version'
+	tart exec -i "$temporary" /bin/bash -c '
+    set -euo pipefail
+    runner_dir=$1
+    shift
+    while IFS="=" read -r key value; do export "$key=$value"; done <"$runner_dir/.env"
+    exec "$@"
+  ' -- "$runner_dir" "$@"
+}
+guest_job /bin/bash -s <"$root/macos/image/verify-toolchain.sh"
+if [[ "$profile" == xcode-android ]]; then
+	# shellcheck disable=SC2016 # The quoted paths are evaluated inside the guest.
+	guest_job /bin/bash -c '
+    "$HOME/android-sdk/platform-tools/adb" version
+    "$HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager" --version
+  ' </dev/null
 fi
 
 mkdir -p "$root/artifacts/tart"
-# shellcheck disable=SC2016 # The quoted variables are evaluated inside the guest.
 {
 	cat "$root/runner_images/inventory.py"
 	printf '\nimport json\nprint(json.dumps(collect(), indent=2))\n'
-} | tart exec -i "$temporary" /bin/bash -c '
-  set -euo pipefail
-  while IFS="=" read -r key value; do export "$key=$value"; done <"$1/.env"
-  exec python3 -
-' -- "$runner_dir" >"$root/artifacts/tart/$image.json"
+} | guest_job python3 - >"$root/artifacts/tart/$image.json"
 tart exec "$temporary" /usr/bin/sync
 tart stop "$temporary" --timeout 120
 wait "$build_pid" || true
