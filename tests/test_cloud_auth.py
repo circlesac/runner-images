@@ -168,6 +168,7 @@ def test_bootstrap_binds_immutable_repository_and_workflow_without_keys(
     assert sum(c[:4] == ["az", "ad", "app", "create"] for c in state["calls"]) == 1
     assert sum(c[:3] == ["az", "group", "create"] for c in state["calls"]) == 1
     gcp_role = next(d for d in state["documents"] if "includedPermissions" in d)
+    assert "compute.instances.setServiceAccount" in gcp_role["includedPermissions"]
     assert not any(
         p.startswith("iam.") or "setIamPolicy" in p
         for p in gcp_role["includedPermissions"]

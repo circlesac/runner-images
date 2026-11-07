@@ -111,6 +111,9 @@ with tempfile.TemporaryDirectory() as directory:
             "compute.instances.setMetadata",
             "compute.instances.setTags",
             "compute.instances.setScheduling",
+            # The Compute insert API requires this even for an empty SA list.
+            # No iam.serviceAccounts.actAs grant: guests remain identity-free.
+            "compute.instances.setServiceAccount",
             "compute.instances.start",
             "compute.instances.stop",
             "compute.instances.getSerialPortOutput",
