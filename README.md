@@ -66,7 +66,7 @@ The test command runs formatting, lint, strict type checking and behavioral test
 | pytest / pytest-cov | 9.2.0 / 7.1.0 | 2026-10-27 / 2026-03-21 | Behavioral tests and branch coverage |
 | Pyright | 1.1.414 | 2026-09-10 | Strict checks for the typed collection/comparison boundary |
 
-Development dependencies use minimum compatible ranges and `uv.lock`; runtime collection and comparison use only the standard library. There is no installed CLI/package release or deployment yet; consume a reviewed Git revision. Cloud provisioning, Windows, version-level probes and official image-test integration are future work.
+`setup-uv` uses the current full release ref because upstream does not publish a `v10` major alias. Development dependencies use minimum compatible ranges and `uv.lock`; runtime collection and comparison use only the standard library. There is no installed CLI/package release or deployment yet; consume a reviewed Git revision. Cloud provisioning, Windows, version-level probes and official image-test integration are future work.
 
 ## Related projects
 
