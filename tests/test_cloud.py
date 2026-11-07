@@ -123,11 +123,7 @@ def fixture(tmp_path, monkeypatch, request):
                     }
                 )
             )
-            artifact = (
-                "example-project:" + state["build_id"]
-                if provider == "gcp"
-                else state["image_id"]
-            )
+            artifact = state["build_id"] if provider == "gcp" else state["image_id"]
             (folder / "packer-manifest.json").write_text(
                 json.dumps(
                     {

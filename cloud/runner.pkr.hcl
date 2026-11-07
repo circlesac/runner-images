@@ -94,8 +94,18 @@ build {
   }
   provisioner "file" {
     direction   = "download"
-    source      = "/tmp/runner-evidence/"
-    destination = var.output_directory
+    source      = "/tmp/runner-evidence/inventory.json"
+    destination = "${var.output_directory}inventory.json"
+  }
+  provisioner "file" {
+    direction   = "download"
+    source      = "/tmp/runner-evidence/toolchain-check.txt"
+    destination = "${var.output_directory}toolchain-check.txt"
+  }
+  provisioner "file" {
+    direction   = "download"
+    source      = "/tmp/runner-evidence/sbom.spdx.json"
+    destination = "${var.output_directory}sbom.spdx.json"
   }
   provisioner "shell" {
     inline = ["sudo rm -rf /tmp/runner-source /tmp/runner-evidence /tmp/actions-runner.tar.gz /tmp/syft.deb", "sudo rm -f /home/runnerbuilder/.ssh/authorized_keys", "sudo apt-get clean", "sudo cloud-init clean --logs --seed", "sudo truncate -s 0 /etc/machine-id"]

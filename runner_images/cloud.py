@@ -340,11 +340,9 @@ def build(root: Path, provider: str) -> None:
     observed = verify_image(root, provider)
     manifest = read_object(path.parent / "packer-manifest.json")
     artifacts = cast(list[dict[str, object]], manifest.get("builds", []))
-    expected = (
-        ":" + str(state["build_id"]) if provider == "gcp" else str(state["image_id"])
-    )
+    expected = str(state["build_id"]) if provider == "gcp" else str(state["image_id"])
     if not any(
-        str(artifact.get("artifact_id", "")).lower().endswith(expected.lower())
+        str(artifact.get("artifact_id", "")).lower() == expected.lower()
         for artifact in artifacts
     ):
         raise ValueError("Packer manifest does not identify the expected cloud image")
