@@ -292,7 +292,7 @@ def build(root: Path, provider: str) -> None:
         provider=provider,
         build_id=str(state["build_id"]),
         version=str(state["version"]),
-        source_image=str(state["base_image"]),
+        source_image=str(state["base_version"]),
         source_version=str(state["base_version"]),
         output_directory=str(path.parent) + "/",
         source_commit=str(state["source_commit"]),
