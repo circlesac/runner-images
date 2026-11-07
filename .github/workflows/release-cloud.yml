@@ -1,0 +1,32 @@
+name: Release cloud runner images
+on:
+  push:
+    branches: [main]
+    paths: [cloud/**, runner_images/cloud.py, runner_images/compare.py, runner_images/inventory.py, scripts/cloud-image.py, .github/workflows/release-cloud.yml, .github/workflows/cloud-image.yml, snapshots/github-hosted/ubuntu-24.04.json]
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Hosted reference inventories]
+    types: [completed]
+  schedule:
+    - cron: "0 1 * * *"
+permissions:
+  contents: read
+jobs:
+  image:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.event != 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success'))
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [gcp, azure]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cloud-image.yml
+    with:
+      provider: ${{ matrix.provider }}
