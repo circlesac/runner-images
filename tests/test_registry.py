@@ -1,6 +1,7 @@
 import hashlib
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -171,3 +172,20 @@ def test_fetch_has_timeout_and_returns_bytes(monkeypatch):
     monkeypatch.setattr(registry, "urlopen", open_url)
     assert registry.fetch("https://ghcr.io/example", {}) == b"synthetic manifest"
     assert calls[0][1]["timeout"] == 90
+
+
+def test_publisher_refuses_dirty_recipe_before_touching_registry(tmp_path):
+    subprocess.run(
+        ["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True
+    )
+    (tmp_path / "uncommitted-recipe.py").write_text("synthetic dirty source")
+    command = Path(__file__).resolve().parents[1] / "scripts/publish-candidate.py"
+    result = subprocess.run(
+        ["python3", str(command), "nonexistent-bundle"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "clean, committed recipe" in result.stderr
+    assert not (tmp_path / "qualifications").exists()

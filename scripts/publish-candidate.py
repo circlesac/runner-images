@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("bundle", type=Path)
 args = parser.parse_args()
 root = Path.cwd()
+if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
+    raise SystemExit("Upload requires the clean, committed recipe used by the build.")
 revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 # Independently validate all evidence before the first registry write.
 record(args.bundle, root, revision)
