@@ -123,6 +123,7 @@ To validate recipes locally without credentials/resources:
 
 ```sh
 python3 scripts/check-cloud.py
+python3 scripts/check-sbom.py /path/to/syft
 ```
 
 This uses Packer 1.16.2 with Google Compute 1.2.9 and Azure 2.6.5 plugins. `packer init` installs the declared compatible plugin versions. The public PR gate validates both real plugin schemas using only synthetic destination values in `cloud/validation.pkrvars.json`. The same Python `scripts/cloud-image.py` phases run in Actions or locally with explicit destination variables and an authenticated cloud CLI; authenticated live execution incurs cloud costs.
