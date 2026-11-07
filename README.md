@@ -1,6 +1,6 @@
 # Runner images
 
-Inspect and compare GitHub Actions runner images on local machines and cloud VMs. The initial implementation measures actual capabilities on Linux and macOS; it does not provision GCP/Azure machines or claim complete version/runtime equivalence.
+Inspect and compare GitHub Actions runner images on local machines and cloud VMs. Collect hosted references, build local Apple Silicon Tart images, and compare actual capabilities on Linux and macOS. GCP/Azure provisioning and complete version/runtime equivalence remain outside the initial scope.
 
 ## What is measured
 
@@ -25,7 +25,11 @@ Output is JSON. Comparison exits 0 when compatible, 1 for capability differences
 
 ## GitHub Actions
 
-The [Hosted reference inventories](../../actions/workflows/reference.yml) workflow captures standard `ubuntu-24.04` and `macos-26` images before any setup action changes their toolchain. It runs on pull requests, pushes to main, or manual dispatch. Artifacts are `reference-ubuntu-24.04` and `reference-macos-26`, each containing `inventory.json`, retained for 30 days. They are generated evidence and are not committed.
+The [Hosted reference inventories](https://github.com/circlesac/runner-images/actions/workflows/reference.yml) workflow captures standard `ubuntu-24.04` and `macos-26` images before setup actions change their toolchain. It runs daily at **09:30 KST (00:30 UTC)**, on pushes to main, on pull requests, and on manual dispatch.
+
+**Git is the durable reference:** [`snapshots/github-hosted/`](snapshots/github-hosted/) contains the current measured JSON for each image. Changed commands, caches, environment names or image versions produce a commit; identical observations produce no commit. Git history preserves previous observations and readable diffs. Observation timestamps and run counters are not inserted into snapshots, so reruns do not create artificial changes. Initial snapshots were captured by [the verified hosted run](https://github.com/circlesac/runner-images/actions/runs/42364175427).
+
+Artifacts only transfer the two matrix jobs’ results to the Git recording job. That job validates the entire matrix, updates only the snapshot directory, and commits with the workflow token. Public PRs cannot write snapshots; only trusted main runs can. Publishing is serialized, starts from current main, and never force-pushes over a concurrent change. A failed/incomplete observation preserves the previous references. Scheduled recording starts once this workflow is merged to the default branch.
 
 The root composite Action collects a candidate:
 
@@ -45,9 +49,24 @@ Compare after downloading the matching reference artifact:
     allowlist: accepted-missing.txt
 ```
 
-Replace `VERIFIED_COMMIT` with the reviewed revision. Existing consumers should download a reference from a successful **push to main** run of `reference.yml`, inspect its head revision and platform, and retain the selected run ID with their test evidence. For example, use `gh run list --repo circlesac/runner-images --workflow reference.yml --branch main --event push --status success`, then `gh run download RUN_ID --repo circlesac/runner-images --name reference-macos-26 --dir reference`. Authenticated artifact download needs a token that can read this public repository's Actions artifacts; do not grant write or administration permissions. No token is needed by the collector or comparer themselves.
+Replace `VERIFIED_COMMIT` with the reviewed code revision. Consumers fetch the public repository’s main branch, read `snapshots/github-hosted/macos-26.json` (or `ubuntu-24.04.json`), and retain that reference commit with their comparison evidence. Reading versioned references needs no Actions-artifact permission or expiring artifact URL. During initial adoption before the public PR is merged, the same verified PR commit also contains the seeded snapshots.
 
 Candidate machines run in their owning private workflows. This repository does not accept public PR code on a private self-hosted runner and never uploads private candidate inventories. Reference collection uses standard GitHub-hosted public-repository runners; cloud VM costs and larger-runner billing are separate.
+
+## Build a Tart image
+
+On an Apple Silicon Mac with Tart, curl, jq and Python 3.11+, run:
+
+```sh
+bash macos/build-image.sh example-runner
+bash macos/build-image.sh example-android ghcr.io/cirruslabs/macos-tahoe-xcode:latest xcode-android
+```
+
+The arguments are destination image, base image (a local Tart image or OCI reference), profile (`xcode` by default, or `xcode-android`), and guest runner directory (`/Users/admin/actions-runner` by default). The Cirrus base supplies macOS and Xcode. The scripts provision GitHub’s macOS toolset, Ruby gems, Rust components, Python/Node/Go caches and Temurin JDKs; the Android profile adds SDK command-line tools, platform-tools and the toolset’s minimum platform/build-tools packages. This is a concrete supported tool subset, not an assertion that every hosted software family is installed.
+
+The builder selects an active physical bridge even when a VPN owns the default route. It refuses an existing destination and a fully occupied two-VM host, builds an isolated temporary clone, installs the checksum-verified GitHub runner without registration credentials, checks the job toolchain, records `artifacts/tart/IMAGE.json`, stops the clone and then publishes it under the requested local name. Failure stops/removes only its temporary clone. Production fleet images and runner configuration are not switched by this script. Keep private image identifiers, credentials and company configuration with the fleet owner.
+
+Guest scripts live in [`macos/image/`](macos/image/). Reuse a pinned base digest when an exact base is required; the resolved toolset is retained inside the guest under `~/.runner-image/`. Xcode comes from the selected base image; this script does not redistribute a host Xcode installation or export simulator runtimes.
 
 ## Development and verification
 
@@ -56,18 +75,20 @@ uv sync --frozen
 uv run python scripts/check.py
 uv run python scripts/test.py
 uv run ruff format .
+shfmt -w scripts macos
 ```
 
-The test command runs formatting, lint, strict type checking and behavioral tests with branch coverage (minimum 80%). The same commands run on Linux and macOS. Tests exercise real executable files/symlinks, cache completion, secret-value omission, repeated collection, incompatible platforms, invalid snapshots, stale allowlists and process exit codes.
+Install ShellCheck and shfmt with your system package manager. The gate runs formatting, Python/shell lint, strict Python types and behavioral tests with branch coverage (minimum 80%). Tests exercise real executable files/symlinks, cache completion, secret-value omission, incompatible platforms, invalid snapshots and stale allowlists; Git recording is exercised against a real local bare remote, including repeat no-op and dirty-worktree refusal. Tart lifecycle tests cover successful publication, provisioning/verification/rename failures, cleanup and preservation of unrelated images through a controlled command boundary. A local real-VM build is a separate integration check, not established by those fixtures.
 
 | Tooling | Version at selection (2026-11-07) | Registry release | Reason |
 | --- | --- | --- | --- |
-| Ruff | 0.17.4 | 2026-11-05 | Native formatter and linter; selected over Black 26.10.1 (2026-10-10), which is formatter-only and requires a second lint tool |
+| Ruff | 0.17.4 | 2026-11-05 | Native formatter and linter; selected over formatter-only Black 26.10.1 (2026-10-10) |
 | pytest / pytest-cov | 9.2.0 / 7.1.0 | 2026-10-27 / 2026-03-21 | Behavioral tests and branch coverage |
-| Pyright | 1.1.414 | 2026-09-10 | Strict checks for the typed collection/comparison boundary |
+| Pyright | 1.1.414 | 2026-09-10 | Strict typed collection/comparison boundary |
+| shfmt / ShellCheck | 3.14.1 / 0.11.0 locally | Distribution packages in CI | Maintained native shell formatter/linter; avoids an interpreter-based formatter or bashate lint pipeline |
 
-`setup-uv` uses the current full release ref because upstream does not publish a `v10` major alias. Development dependencies use minimum compatible ranges and `uv.lock`; runtime collection and comparison use only the standard library. There is no installed CLI/package release or deployment yet; consume a reviewed Git revision. Cloud provisioning, Windows, version-level probes and official image-test integration are future work.
+`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. Cloud provisioning, Windows, version-level probes and official upstream test integration are future work.
 
 ## Related projects
 
-[actions/runner-images](https://github.com/actions/runner-images) is the official upstream source for toolsets, provisioning, software reports and runtime tests. [runner-drift](https://github.com/Booyaka101/runner-drift) monitors selected tool-version changes and image migrations. [Mactions](https://github.com/Kyter-com/Mactions) manages ephemeral runners and documents hosted differences. This repository focuses on comparing observations from both machines rather than treating a published software manifest as proof of a candidate's contents.
+[actions/runner-images](https://github.com/actions/runner-images) is the official upstream source for toolsets, provisioning, software reports and runtime tests. [runner-drift](https://github.com/Booyaka101/runner-drift) monitors selected tool-version changes and migrations. [Mactions](https://github.com/Kyter-com/Mactions) manages ephemeral runners and documents hosted differences. This repository compares observations from both machines rather than treating a published manifest as proof of a candidate’s contents.

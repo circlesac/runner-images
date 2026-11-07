@@ -39,7 +39,7 @@ def collect(environ: Mapping[str, str] | None = None) -> Inventory:
         if not re.search(
             r"^(GITHUB_|RUNNER_|ACTIONS_|INPUT_|STATS_|SUDO_|XDG_|LC_|TERM|LANG|"
             r"CI$|HOME$|PATH$|PWD$|OLDPWD$|SHELL$|SHLVL$|USER$|LOGNAME$|HOSTNAME$|"
-            r"MAIL$|__CF_USER_TEXT_ENCODING$|DEBIAN_FRONTEND$|_$)",
+            r"MAIL$|__CF_USER_TEXT_ENCODING$|DEBIAN_FRONTEND$|INVENTORY_OUTPUT$|_$)",
             name,
         ):
             records.add(f"env {name}")

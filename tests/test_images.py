@@ -52,6 +52,7 @@ def test_collect_real_files(tmp_path, monkeypatch):
             "RUNNER_TOOL_CACHE": str(cache),
             "JAVA_HOME": "secret-path-that-must-not-appear",
             "GITHUB_TOKEN": "secret-token-that-must-not-appear",
+            "INVENTORY_OUTPUT": "job-only-output-path",
             "HOME": "private-home",
             "__CF_USER_TEXT_ENCODING": "session-metadata",
             "ImageOS": "macos26",

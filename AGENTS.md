@@ -4,4 +4,4 @@
 - Collect from actual machines. Published tool lists are expected configuration, not proof of installed tools.
 - `uv run python scripts/check.py` is the static gate. `uv run python scripts/test.py` adds behavioral and branch-coverage checks. Run `actionlint` after workflow changes.
 - Public PR workflows use GitHub-hosted runners only. Candidate runs remain in the owning private repositories.
-- Generated reference snapshots belong in Actions artifacts, not git. Changes to the JSON schema must preserve consumers or use a new schema version.
+- Hosted reference snapshots are intentionally versioned under `snapshots/github-hosted/`, per the requested Git history contract. Artifacts transfer observations between jobs; Git is the durable reference. Commit only changed observations. Changes to the JSON schema must preserve consumers or use a new schema version.

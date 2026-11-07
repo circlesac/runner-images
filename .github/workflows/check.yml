@@ -19,6 +19,15 @@ jobs:
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v10.3.3
+      - name: Install shell checks
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            brew install shellcheck shfmt
+          else
+            sudo apt-get update
+            sudo apt-get install -y shellcheck shfmt
+          fi
       - name: Install development tools
         run: uv sync --frozen
       - name: Check

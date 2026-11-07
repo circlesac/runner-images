@@ -2,11 +2,18 @@
 
 import subprocess
 import sys
+from pathlib import Path
 
 for command in (
     ["ruff", "format", "--check", "."],
     ["ruff", "check", "."],
     ["pyright"],
+    ["shfmt", "-d", "scripts", "macos"],
+    [
+        "shellcheck",
+        *map(str, sorted(Path("scripts").glob("*.sh"))),
+        *map(str, sorted(Path("macos").rglob("*.sh"))),
+    ],
 ):
     result = subprocess.run(command, check=False)
     if result.returncode:
