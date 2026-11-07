@@ -4,6 +4,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 sudo cloud-init status --wait
 sudo apt-get update
+sudo -E apt-get -y -o Dpkg::Options::=--force-confdef \
+	-o Dpkg::Options::=--force-confold upgrade
 sudo -E apt-get install -y --no-install-recommends \
 	build-essential clang cmake ninja-build git git-lfs curl wget jq ca-certificates \
 	zip unzip xz-utils python3 python3-venv python3-pip nodejs npm golang-go \

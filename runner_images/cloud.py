@@ -65,6 +65,7 @@ def inputs(root: Path, provider: str, settings: dict[str, str], base: str) -> st
     names = [
         "snapshots/github-hosted/ubuntu-24.04.json",
         ".github/workflows/release-cloud.yml",
+        ".github/workflows/cloud-image.yml",
         "runner_images/cloud.py",
         "runner_images/compare.py",
         "runner_images/inventory.py",
@@ -73,7 +74,7 @@ def inputs(root: Path, provider: str, settings: dict[str, str], base: str) -> st
     names += [
         str(p.relative_to(root))
         for p in (root / "cloud").rglob("*")
-        if p.is_file() and p.name != "validation.pkrvars.json"
+        if p.is_file() and p.suffix in (".hcl", ".sh")
     ]
     value = hashlib.sha256(
         json.dumps([provider, settings, base], sort_keys=True).encode()
@@ -153,7 +154,8 @@ def plan(root: Path, provider: str) -> dict[str, str]:
         if receipt.get("status") != "released" or receipt.get("input_id") != identity:
             raise ValueError("invalid previous cloud release record")
         evidence = read_object(previous.with_name("image.json"))
-        if evidence.get("input_id") != identity or evidence.get("settings") != settings:
+        evidence["settings"] = settings
+        if evidence.get("input_id") != identity:
             raise ValueError("previous image metadata does not match the destination")
         (workspace / "state.json").write_text(json.dumps(evidence))
         verify_image(root, provider)
@@ -181,7 +183,6 @@ def plan(root: Path, provider: str) -> dict[str, str]:
         if (
             receipt.get("input_id") != identity
             or receipt.get("provider") != provider
-            or receipt.get("settings") != settings
             or receipt.get("base_image") != source
         ):
             raise ValueError("release recovery does not match cloud build inputs")
@@ -202,6 +203,7 @@ def plan(root: Path, provider: str) -> dict[str, str]:
         )
         if commit.get("sha") != receipt.get("source_commit"):
             raise ValueError("cloud recovery source tag mismatch")
+        receipt["settings"] = settings
         (workspace / "state.json").write_text(json.dumps(receipt))
         verify_image(root, provider)
         store(root, provider, existing)
@@ -360,7 +362,7 @@ def build(root: Path, provider: str) -> None:
         json.dumps(comparison, indent=2) + "\n"
     )
     evidence = {
-        **state,
+        **{key: value for key, value in state.items() if key != "settings"},
         "evidence_sha256": {
             name: digest(path.parent / name)
             for name in (

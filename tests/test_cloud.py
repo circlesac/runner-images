@@ -14,6 +14,7 @@ def fixture(tmp_path, monkeypatch, request):
     for name in (
         "snapshots/github-hosted/ubuntu-24.04.json",
         ".github/workflows/release-cloud.yml",
+        ".github/workflows/cloud-image.yml",
         "runner_images/cloud.py",
         "runner_images/compare.py",
         "runner_images/inventory.py",
@@ -220,6 +221,7 @@ def test_plan_build_publish_noop_and_new_inputs(fixture):
     assert cloud.plan(root, provider) == {"needed": "true", "record": "true"}
     cloud.build(root, provider)
     folder = cloud.state_path(root, provider).parent
+    assert "settings" not in json.loads((folder / "image.json").read_text())
     report = json.loads((folder / "comparison.json").read_text())
     assert report["unexpected_missing"] == ["cmd missing-hosted-tool"]
     assert not report["compatible"]  # basic image release never claims full parity
@@ -422,7 +424,7 @@ def test_recovery_refuses_wrong_destination_and_bad_checksum(fixture):
     shutil.rmtree(root / "qualifications")
     path = cloud.state_path(root, provider).parent / "image.json"
     original = json.loads(path.read_text())
-    state["image_asset"] = json.dumps({**original, "settings": {}})
+    state["image_asset"] = json.dumps({**original, "provider": "unknown"})
     with pytest.raises(ValueError, match="inputs"):
         cloud.plan(root, provider)
     # A parseable but differently serialized receipt must also match its asset hash.
