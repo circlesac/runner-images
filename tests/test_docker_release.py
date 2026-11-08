@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+REAL_RUN = subprocess.run
+
 spec = importlib.util.spec_from_file_location(
     "docker_release", Path(__file__).resolve().parents[1] / "docker/release-image.py"
 )
@@ -213,3 +215,42 @@ def test_publish_and_replay_keep_original_signed_assets(candidate):
         len([call for call in state["calls"] if call[:2] == ("docker", "push")])
         == original_pushes
     )
+
+
+def test_durable_receipt_uses_real_git_push_and_repeat_is_noop(
+    candidate, monkeypatch, tmp_path
+):
+    bundle, _ = candidate
+    fake_run = release.subprocess.run
+
+    def git(*args, cwd=tmp_path):
+        return REAL_RUN(
+            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    remote = tmp_path.parent / (tmp_path.name + "-remote.git")
+    git("init", "--bare", str(remote))
+    git("init", "-b", "main")
+    git("config", "user.name", "Example Maintainer")
+    git("config", "user.email", "maintainer@example.com")
+    (tmp_path / ".gitignore").write_text("bundle/\n")
+    git("add", ".gitignore")
+    git("commit", "-m", "initial")
+    git("remote", "add", "origin", str(remote))
+    git("push", "-u", "origin", "main")
+
+    def with_real_git(args, **kwargs):
+        return (
+            REAL_RUN(args, **kwargs) if args[0] == "git" else fake_run(args, **kwargs)
+        )
+
+    monkeypatch.setattr(release.subprocess, "run", with_real_git)
+    release.prepare("example:local", bundle)
+    sign(bundle)
+    release.publish(bundle)
+    first = git("rev-parse", "HEAD")
+    assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == first
+    assert git("status", "--porcelain") == ""
+    release.publish(bundle)
+    assert git("rev-parse", "HEAD") == first
+    assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == first
