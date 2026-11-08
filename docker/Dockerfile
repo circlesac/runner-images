@@ -1,4 +1,4 @@
-ARG RUNNER_BASE
+ARG RUNNER_BASE=ghcr.io/actions/actions-runner:latest
 FROM ${RUNNER_BASE}
 USER root
 ARG TARGETARCH

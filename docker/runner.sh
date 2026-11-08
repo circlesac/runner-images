@@ -10,6 +10,32 @@ root="$SHARED_DIR/$HOSTNAME"
 mkdir "$root"
 cp -a /opt/actions-runner/. "$root/"
 cd "$root"
-# Keep exec's signal semantics. runscaler removes the container afterwards;
-# successful workspace cleanup is performed by the host, after mount read-back.
-exec ./run.sh
+child=''
+stopping=false
+trap 'stopping=true; [[ -z "$child" ]] || kill -TERM "$child" 2>/dev/null || true' TERM INT
+./run.sh &
+child=$!
+set +e
+wait "$child"
+status=$?
+while kill -0 "$child" 2>/dev/null; do
+	wait "$child"
+	status=$?
+done
+set -e
+if [[ "$status" == 0 && "$stopping" == false ]]; then
+	# Only this attempt's completed directory can be removed. Preserve it if
+	# the daemon cannot be queried or a stopped/running sibling still binds it.
+	mounted=true
+	if ids=$(docker ps --all --quiet) && sources=$(printf '%s\n' "$ids" | xargs -r docker inspect --format '{{range .Mounts}}{{println .Source}}{{end}}'); then
+		mounted=false
+		while IFS= read -r source; do
+			case "$source" in "$root" | "$root"/*) mounted=true ;; esac
+		done <<<"$sources"
+	fi
+	if [[ "$mounted" == false && ! -L "$root" && "$(pwd -P)" == "$root" ]]; then
+		cd "$SHARED_DIR"
+		rm -rf -- "$root"
+	fi
+fi
+exit "$status"

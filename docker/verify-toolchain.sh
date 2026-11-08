@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck disable=SC1091
 source /etc/os-release
 test "$VERSION_ID" = 24.04
 test "$(uname -m)" = aarch64
