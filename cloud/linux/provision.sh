@@ -40,9 +40,11 @@ printf '%s  %s\n' "$checksum" /tmp/actions-runner.tar.gz | sha256sum --check
 tar xzf /tmp/actions-runner.tar.gz
 sudo ./bin/installdependencies.sh
 # No repository/organization registration, tokens, or cloud identity in the VM.
+# The scanner is a temporary build dependency, not a shipped runner tool.
 release=$(curl -fsSL --retry 5 https://api.github.com/repos/anchore/syft/releases/latest)
-url=$(jq -er '.assets[] | select(.name | endswith("_linux_amd64.deb")) | .browser_download_url' <<<"$release")
-checksum=$(jq -er '.assets[] | select(.name | endswith("_linux_amd64.deb")) | .digest | ltrimstr("sha256:")' <<<"$release")
-curl -fsSL --retry 5 "$url" -o /tmp/syft.deb
-printf '%s  %s\n' "$checksum" /tmp/syft.deb | sha256sum --check
-sudo dpkg -i /tmp/syft.deb
+url=$(jq -er '.assets[] | select(.name | endswith("_linux_amd64.tar.gz")) | .browser_download_url' <<<"$release")
+checksum=$(jq -er '.assets[] | select(.name | endswith("_linux_amd64.tar.gz")) | .digest | ltrimstr("sha256:")' <<<"$release")
+curl -fsSL --retry 5 "$url" -o /tmp/syft.tar.gz
+printf '%s  %s\n' "$checksum" /tmp/syft.tar.gz | sha256sum --check
+mkdir -p /tmp/runner-tools
+tar xzf /tmp/syft.tar.gz -C /tmp/runner-tools syft
