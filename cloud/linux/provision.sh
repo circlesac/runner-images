@@ -41,6 +41,7 @@ curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "$url" -o /tmp/actions-r
 printf '%s  %s\n' "$checksum" /tmp/actions-runner.tar.gz | sha256sum --check
 tar xzf /tmp/actions-runner.tar.gz
 sudo ./bin/installdependencies.sh
+sudo python3 /tmp/runner-source/install-toolchains.py /opt/actions-runner /tmp/runner-evidence/toolchains.json --runner-npm
 # No repository/organization registration, tokens, or cloud identity in the VM.
 # The scanner is a temporary build dependency, not a shipped runner tool.
 curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 https://api.github.com/repos/anchore/syft/releases/latest -o /tmp/syft-release.json

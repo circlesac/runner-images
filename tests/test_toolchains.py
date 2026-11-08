@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import io
 import json
@@ -63,6 +64,15 @@ def test_resolve_chooses_official_stable_linux_archives(installer, monkeypatch):
                 ],
             }
         ),
+        "https://registry.npmjs.org/npm/latest": json.dumps(
+            {
+                "version": "12.0.0",
+                "dist": {
+                    "tarball": "https://registry.npmjs.org/npm/-/npm-12.0.0.tgz",
+                    "integrity": "sha512-" + base64.b64encode(b"n" * 64).decode(),
+                },
+            }
+        ),
     }
     monkeypatch.setitem(
         installer["resolve"].__globals__, "read", lambda url: documents[url].encode()
@@ -71,7 +81,8 @@ def test_resolve_chooses_official_stable_linux_archives(installer, monkeypatch):
     assert result["node"]["version"] == "v24.1.0"
     assert result["go"]["url"].endswith("linux-amd64.tar.gz")
     assert result["git-lfs"]["sha256"] == "d" * 64
-    assert set(result) == {"node", "go", "git-lfs", "rustc", "rust-std", "cargo"}
+    assert result["npm"]["sha512"] == (b"n" * 64).hex()
+    assert set(result) == {"node", "npm", "go", "git-lfs", "rustc", "rust-std", "cargo"}
 
 
 def test_unpack_rejects_tampering_before_extraction(installer, tmp_path, monkeypatch):
@@ -194,3 +205,80 @@ def test_github_auth_is_not_sent_to_other_metadata_hosts(installer, monkeypatch)
         == "1.0.0"
     )
     assert calls == ["https://example.com/metadata"]
+
+
+@pytest.mark.parametrize("algorithm", ["sha256", "sha512"])
+def test_unpack_rejects_both_checksum_algorithms_before_extracting(
+    installer, tmp_path, monkeypatch, algorithm
+):
+    monkeypatch.setitem(
+        installer["unpack"].__globals__,
+        "download",
+        lambda url, path: path.write_bytes(b"wrong bytes"),
+    )
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        installer["unpack"](
+            {
+                "url": "https://example.com/npm.tgz",
+                algorithm: hashlib.new(algorithm, b"expected").hexdigest(),
+            },
+            tmp_path,
+        )
+    assert not (tmp_path / "extracted").exists()
+
+
+def test_npm_refresh_removes_old_dependencies_and_keeps_runtime(installer, tmp_path):
+    prefix = tmp_path / "node20"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin/node").write_bytes(b"original official Node binary")
+    stale = prefix / "lib/node_modules/npm/node_modules/old-vulnerable-package"
+    stale.mkdir(parents=True)
+    (stale / "package.json").write_text("{}")
+    package = tmp_path / "extracted/package"
+    (package / "bin").mkdir(parents=True)
+    (package / "package.json").write_text('{"version":"11.21.2"}')
+    for name in ["npm", "npx"]:
+        (package / f"bin/{name}-cli.js").write_text("updated CLI")
+    installer["install_npm"](prefix, {"version": "11.21.2"}, package.parent)
+    assert not stale.exists()
+    assert (prefix / "bin/npm").read_text() == "updated CLI"
+    assert (prefix / "bin/npx").read_text() == "updated CLI"
+    assert (prefix / "bin/node").read_bytes() == b"original official Node binary"
+
+
+def test_npm_archive_identity_checked_before_replacing_installation(
+    installer, tmp_path
+):
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "package.json").write_text('{"version":"1.0.0"}')
+    with pytest.raises(ValueError, match="version differs"):
+        installer["install_npm"](tmp_path / "prefix", {"version": "2.0.0"}, tmp_path)
+    assert not (tmp_path / "prefix").exists()
+
+
+@pytest.mark.parametrize(
+    "version,integrity,message",
+    [
+        ("11.0.0-rc.1", "sha512-", "stable release"),
+        ("12.0.0", "sha512-", "compatible npm 11"),
+        ("11.0.0", "sha1-example", "SHA-512 integrity"),
+        (
+            "11.0.0",
+            "sha512-" + base64.b64encode(b"short").decode(),
+            "invalid npm SHA-512",
+        ),
+    ],
+)
+def test_legacy_npm_resolution_rejects_incompatible_or_unverified_release(
+    installer, monkeypatch, version, integrity, message
+):
+    monkeypatch.setitem(
+        installer["resolve_npm"].__globals__,
+        "read",
+        lambda url: json.dumps(
+            {"version": version, "dist": {"integrity": integrity}}
+        ).encode(),
+    )
+    with pytest.raises(ValueError, match=message):
+        installer["resolve_npm"]("next-11")

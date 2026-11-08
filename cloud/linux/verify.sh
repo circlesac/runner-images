@@ -14,6 +14,9 @@ rustc --version
 cargo --version
 git-lfs version
 npm --version
+for runtime in node20 node24; do
+	/opt/actions-runner/externals/"$runtime"/bin/node /opt/actions-runner/externals/"$runtime"/lib/node_modules/npm/bin/npm-cli.js --version
+done
 docker compose version
 docker buildx version
 sudo docker info --format '{{.ServerVersion}}'
