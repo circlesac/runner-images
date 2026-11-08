@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote
@@ -62,7 +63,13 @@ def config(provider: str) -> dict[str, str]:
     return result
 
 
-def inputs(root: Path, provider: str, settings: dict[str, str], base: str) -> str:
+def inputs(
+    root: Path,
+    provider: str,
+    settings: dict[str, str],
+    base: str,
+    toolchains: dict[str, object],
+) -> str:
     names = [
         "snapshots/github-hosted/ubuntu-24.04.json",
         ".github/workflows/release-cloud.yml",
@@ -82,7 +89,7 @@ def inputs(root: Path, provider: str, settings: dict[str, str], base: str) -> st
         )
     ]
     value = hashlib.sha256(
-        json.dumps([provider, settings, base], sort_keys=True).encode()
+        json.dumps([provider, settings, base, toolchains], sort_keys=True).encode()
     )
     for name in sorted(names):
         value.update(name.encode() + b"\0" + (root / name).read_bytes() + b"\0")
@@ -150,9 +157,15 @@ def plan(root: Path, provider: str) -> dict[str, str]:
         )
         source_version = str(base["name"])
         source = f"Canonical:ubuntu-24_04-lts:server:{source_version}"
-    identity = inputs(root, provider, settings, source)
+    toolchains = api(
+        [sys.executable, "cloud/linux/install-toolchains.py", "--resolve"], root
+    )
+    identity = inputs(root, provider, settings, source, toolchains)
     workspace = state_path(root, provider).parent
     workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "toolchains-plan.json").write_text(
+        json.dumps(toolchains, sort_keys=True) + "\n"
+    )
     previous = root / f"qualifications/cloud/{provider}/{identity}/release.json"
     if previous.exists():
         receipt = read_object(previous)
@@ -273,7 +286,7 @@ def build(root: Path, provider: str) -> None:
     settings = cast(dict[str, str], state["settings"])
     with urlopen("https://api.ipify.org", timeout=30) as response:
         address = str(ipaddress.IPv4Address(response.read().decode().strip()))
-    values = {
+    values: dict[str, object] = {
         key: ""
         for key in (
             "gcp_project",
@@ -301,6 +314,7 @@ def build(root: Path, provider: str) -> None:
         output_directory=str(path.parent) + "/",
         source_commit=str(state["source_commit"]),
         input_id=str(state["input_id"]),
+        toolchains=read_object(path.parent / "toolchains-plan.json"),
         builder_ip=address,
     )
     values.pop("azure_subscription_id", None)
@@ -362,8 +376,10 @@ def build(root: Path, provider: str) -> None:
     native_sbom = read_object(path.parent / "sbom.syft.json")
     if not native_sbom.get("artifacts"):
         raise ValueError("native cloud image SBOM is empty or invalid")
-    if not read_object(path.parent / "toolchains.json"):
-        raise ValueError("toolchain download receipts are empty")
+    if read_object(path.parent / "toolchains.json") != read_object(
+        path.parent / "toolchains-plan.json"
+    ):
+        raise ValueError("installed toolchains differ from the planned build inputs")
     # Basic profile smoke is the release gate; hosted parity is an honest report.
     comparison = compare(
         load(root / "snapshots/github-hosted/ubuntu-24.04.json"), inventory, None

@@ -59,6 +59,7 @@ def fixture(tmp_path, monkeypatch, request):
         "fail": "",
         "version": "26.11.0",
         "base": "ubuntu-example-20261108",
+        "toolchains": {"node": {"version": "v24.0.0", "sha256": "a" * 64}},
     }
 
     def current():
@@ -67,6 +68,8 @@ def fixture(tmp_path, monkeypatch, request):
 
     def commands(args, root, *, output=False):
         external["commands"].append(args)
+        if args[1:] == ["cloud/linux/install-toolchains.py", "--resolve"]:
+            return json.dumps(external["toolchains"])
         if args[:2] == ["git", "rev-parse"]:
             return "a" * 40
         if args[0] == "npx":
@@ -136,7 +139,7 @@ def fixture(tmp_path, monkeypatch, request):
                 json.dumps(
                     {}
                     if external["fail"] == "receipts"
-                    else {"node": {"version": "v24.0.0", "sha256": "a" * 64}}
+                    else json.loads((folder / "toolchains-plan.json").read_text())
                 )
             )
             artifact = state["build_id"] if provider == "gcp" else state["image_id"]
@@ -482,3 +485,54 @@ def test_cleanup_reports_stalled_deletion_and_attempts_other_resources(fixture):
         assert any("disks" in c and "delete" in c for c in state["commands"])
     else:
         assert sum(c[:3] == ["az", "resource", "list"] for c in state["commands"]) == 2
+
+
+def test_new_tool_release_rebuilds_without_a_new_base_or_recipe(fixture):
+    root, provider, state = fixture
+    cloud.plan(root, provider)
+    cloud.build(root, provider)
+    signed(root, provider)
+    cloud.publish(root, provider)
+    assert cloud.plan(root, provider)["needed"] == "false"
+    previous = json.loads(cloud.state_path(root, provider).read_text())["input_id"]
+    state["toolchains"]["node"]["version"] = "v24.0.1"
+    state["toolchains"]["node"]["sha256"] = "b" * 64
+    assert cloud.plan(root, provider)["needed"] == "true"
+    assert (
+        json.loads(cloud.state_path(root, provider).read_text())["input_id"] != previous
+    )
+    cloud.build(root, provider)
+    folder = cloud.state_path(root, provider).parent
+    assert (
+        json.loads((folder / "variables.pkrvars.json").read_text())["toolchains"]
+        == state["toolchains"]
+    )
+    assert json.loads((folder / "toolchains.json").read_text()) == state["toolchains"]
+
+
+def test_build_rejects_a_guest_that_changed_planned_tool_versions(fixture):
+    root, provider, state = fixture
+    cloud.plan(root, provider)
+    planned = json.loads(
+        (cloud.state_path(root, provider).parent / "toolchains-plan.json").read_text()
+    )
+    planned["node"]["version"] = "v24.0.1"
+    (cloud.state_path(root, provider).parent / "toolchains-plan.json").write_text(
+        json.dumps(planned)
+    )
+    # Simulate a guest independently choosing a different upstream version.
+    original = cloud.command
+
+    def commands(args, root, *, output=False):
+        result = original(args, root, output=output)
+        if args[:2] == ["packer", "build"]:
+            (cloud.state_path(root, provider).parent / "toolchains.json").write_text(
+                json.dumps(state["toolchains"])
+            )
+        return result
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(cloud, "command", commands)
+        with pytest.raises(ValueError, match="differ from the planned"):
+            cloud.build(root, provider)
+    assert not (cloud.state_path(root, provider).parent / "image.json").exists()

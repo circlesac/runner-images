@@ -19,6 +19,7 @@ variable "source_version" { type = string }
 variable "output_directory" { type = string }
 variable "source_commit" { type = string }
 variable "input_id" { type = string }
+variable "toolchains" { type = map(map(string)) }
 variable "builder_ip" { type = string }
 variable "gcp_project" { type = string }
 variable "gcp_zone" { type = string }
@@ -92,6 +93,10 @@ build {
   provisioner "file" {
     source      = "cloud/linux/install-toolchains.py"
     destination = "/tmp/runner-source/install-toolchains.py"
+  }
+  provisioner "file" {
+    content     = jsonencode(var.toolchains)
+    destination = "/tmp/runner-source/toolchains-plan.json"
   }
   provisioner "shell" {
     scripts = ["cloud/linux/provision.sh", "cloud/linux/verify.sh"]

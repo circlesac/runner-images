@@ -34,6 +34,9 @@ jobs:
         run: uv run python scripts/check.py
       - name: Test
         run: uv run python scripts/test.py
+      - name: Verify root installation preserves runner cleanup permissions
+        if: runner.os == 'Linux'
+        run: sudo .venv/bin/python -m pytest tests/test_toolchains.py::test_npm_replacement_allows_runner_to_remove_its_old_tree --no-cov -q
   cloud-recipes:
     runs-on: ubuntu-24.04
     steps:
@@ -59,7 +62,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 cloud/linux/install-toolchains.py "$RUNNER_TEMP/toolchains" "$RUNNER_TEMP/toolchains.json"
+          python3 cloud/linux/install-toolchains.py --resolve > "$RUNNER_TEMP/toolchains-plan.json"
+          python3 cloud/linux/install-toolchains.py "$RUNNER_TEMP/toolchains" "$RUNNER_TEMP/toolchains.json" --specifications "$RUNNER_TEMP/toolchains-plan.json"
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == json.load(open(sys.argv[2]))' "$RUNNER_TEMP/toolchains-plan.json" "$RUNNER_TEMP/toolchains.json"
           export PATH="$RUNNER_TEMP/toolchains/bin:$RUNNER_TEMP/toolchains/go/bin:$PATH"
           node --version
           npm --version

@@ -34,6 +34,18 @@ def resolve_npm(tag: str = "latest") -> dict[str, str]:
     }
 
 
+def resolve_github(repository: str, pattern: str) -> dict[str, str]:
+    release = json.loads(
+        read(f"https://api.github.com/repos/{repository}/releases/latest")
+    )
+    asset = next(a for a in release["assets"] if re.fullmatch(pattern, a["name"]))
+    return {
+        "version": release["tag_name"],
+        "url": asset["browser_download_url"],
+        "sha256": asset["digest"].removeprefix("sha256:"),
+    }
+
+
 def download(url: str, destination: Path) -> None:
     subprocess.run(
         [
@@ -93,23 +105,6 @@ def resolve() -> dict[str, dict[str, str]]:
     rust = tomllib.loads(
         read("https://static.rust-lang.org/dist/channel-rust-stable.toml").decode()
     )
-    release = json.loads(
-        read("https://api.github.com/repos/git-lfs/git-lfs/releases/latest")
-    )
-    asset = next(
-        item
-        for item in release["assets"]
-        if item["name"].startswith("git-lfs-linux-amd64-")
-        and item["name"].endswith(".tar.gz")
-    )
-    buildx = json.loads(
-        read("https://api.github.com/repos/docker/buildx/releases/latest")
-    )
-    buildx_asset = next(
-        item
-        for item in buildx["assets"]
-        if item["name"] == f"buildx-{buildx['tag_name']}.linux-amd64"
-    )
     result = {
         "node": {
             "version": node["version"],
@@ -121,18 +116,18 @@ def resolve() -> dict[str, dict[str, str]]:
             "url": "https://go.dev/dl/" + go_file["filename"],
             "sha256": go_file["sha256"],
         },
-        "git-lfs": {
-            "version": release["tag_name"],
-            "url": asset["browser_download_url"],
-            "sha256": asset["digest"].removeprefix("sha256:"),
-        },
+        "git-lfs": resolve_github(
+            "git-lfs/git-lfs", r"git-lfs-linux-amd64-.*\.tar\.gz"
+        ),
         "npm": resolve_npm(),
-        "buildx": {
-            "version": buildx["tag_name"],
-            "url": buildx_asset["browser_download_url"],
-            "sha256": buildx_asset["digest"].removeprefix("sha256:"),
-        },
+        "buildx": resolve_github("docker/buildx", r"buildx-.*\.linux-amd64"),
+        "actions-runner": resolve_github(
+            "actions/runner", r"actions-runner-linux-x64-.*\.tar\.gz"
+        ),
+        "syft": resolve_github("anchore/syft", r"syft_.*_linux_amd64\.tar\.gz"),
+        "npm-node20": resolve_npm("next-11"),
     }
+    result["npm-node24"] = result["npm"].copy()
     for component in ("rustc", "rust-std", "cargo"):
         package = rust["pkg"][component]
         target = package["target"]["x86_64-unknown-linux-gnu"]
@@ -182,6 +177,7 @@ def install_npm(prefix: Path, spec: dict[str, str], extracted: Path) -> None:
     if json.loads((package / "package.json").read_text())["version"] != spec["version"]:
         raise ValueError("npm archive version differs from registry receipt")
     destination = prefix / "lib/node_modules/npm"
+    owner = (destination if destination.exists() else prefix).stat()
     if destination.exists():
         shutil.rmtree(destination)
     shutil.copytree(package, destination, symlinks=True)
@@ -190,17 +186,26 @@ def install_npm(prefix: Path, spec: dict[str, str], extracted: Path) -> None:
         link = prefix / "bin" / command
         link.unlink(missing_ok=True)
         link.symlink_to(f"../lib/node_modules/npm/bin/{command}-cli.js")
+    for path in [
+        destination,
+        *destination.rglob("*"),
+        prefix / "bin/npm",
+        prefix / "bin/npx",
+    ]:
+        stat = path.lstat()
+        if (stat.st_uid, stat.st_gid) != (owner.st_uid, owner.st_gid):
+            os.chown(path, owner.st_uid, owner.st_gid, follow_symlinks=False)
 
 
 def refresh_runner_npm(runner: Path, receipt: Path) -> None:
     # Preserve the runner's actual Node binaries and its action routing contract.
     # npm 12 supports Node 24; npm 11 is the maintained compatible line for Node 20.
     specifications = json.loads(receipt.read_text())
-    for runtime, tag in (("node20", "next-11"), ("node24", "latest")):
+    for runtime in ("node20", "node24"):
         prefix = runner / "externals" / runtime
         if not (prefix / "bin/node").is_file():
             raise ValueError(f"missing official runner runtime: {runtime}")
-        spec = resolve_npm(tag)
+        spec = specifications[f"npm-{runtime}"]
         with tempfile.TemporaryDirectory() as directory:
             extracted = unpack(spec, Path(directory))
             install_npm(prefix, spec, extracted)
@@ -209,11 +214,24 @@ def refresh_runner_npm(runner: Path, receipt: Path) -> None:
     receipt.write_text(json.dumps(specifications, indent=2) + "\n")
 
 
-def install(prefix: Path, receipt: Path) -> None:
-    specifications = resolve()
+def install(
+    prefix: Path, receipt: Path, specifications: dict[str, dict[str, str]] | None = None
+) -> None:
+    if specifications is None:
+        specifications = resolve()
     prefix.mkdir(parents=True, exist_ok=True)
     (prefix / "bin").mkdir(exist_ok=True)
-    for name, spec in specifications.items():
+    for name in (
+        "node",
+        "go",
+        "git-lfs",
+        "npm",
+        "buildx",
+        "rustc",
+        "rust-std",
+        "cargo",
+    ):
+        spec = specifications[name]
         with tempfile.TemporaryDirectory() as directory:
             if name == "buildx":
                 install_buildx(prefix, spec, Path(directory))
@@ -256,11 +274,21 @@ def install(prefix: Path, receipt: Path) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("prefix", type=Path)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--runner-npm", action="store_true")
+    parser.add_argument("prefix", type=Path, nargs="?")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--runner-npm", action="store_true")
+    modes.add_argument("--resolve", action="store_true")
+    parser.add_argument("--specifications", type=Path)
     args = parser.parse_args()
-    if args.runner_npm:
+    if args.resolve:
+        print(json.dumps(resolve(), sort_keys=True))
+    elif args.prefix is None or args.receipt is None:
+        parser.error("prefix and receipt are required for installation")
+    elif args.runner_npm:
         refresh_runner_npm(args.prefix.resolve(), args.receipt.resolve())
     else:
-        install(args.prefix.resolve(), args.receipt.resolve())
+        specifications = (
+            json.loads(args.specifications.read_text()) if args.specifications else None
+        )
+        install(args.prefix.resolve(), args.receipt.resolve(), specifications)

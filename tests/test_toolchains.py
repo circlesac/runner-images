@@ -2,12 +2,52 @@ import base64
 import hashlib
 import io
 import json
+import os
 import runpy
 import subprocess
 import tarfile
+import tempfile
 from pathlib import Path
 
 import pytest
+
+
+@pytest.mark.skipif(
+    getattr(os, "geteuid", lambda: -1)() != 0,
+    reason="requires root to reproduce runner ownership",
+)
+def test_npm_replacement_allows_runner_to_remove_its_old_tree(installer):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        prefix = root / "runner"
+        (prefix / "bin").mkdir(parents=True)
+        old = prefix / "lib/node_modules/npm"
+        old.mkdir(parents=True)
+        (old / "old.js").write_text("obsolete npm")
+        for path in [root, prefix, *prefix.rglob("*")]:
+            os.chown(path, 65534, 65534)
+        package = root / "extracted/package"
+        (package / "bin").mkdir(parents=True)
+        (package / "package.json").write_text('{"version":"11.21.2"}')
+        for name in ("npm", "npx"):
+            (package / f"bin/{name}-cli.js").write_text("updated npm")
+        installer["install_npm"](prefix, {"version": "11.21.2"}, package.parent)
+        assert (prefix / "lib/node_modules/npm").stat().st_uid == 65534
+        assert (prefix / "bin/npm").lstat().st_uid == 65534
+        subprocess.run(
+            [
+                "/usr/bin/python3",
+                "-c",
+                "import shutil,sys;shutil.rmtree(sys.argv[1])",
+                str(prefix),
+            ],
+            user=65534,
+            group=65534,
+            extra_groups=[],
+            cwd="/tmp",
+            check=True,
+        )
+        assert not prefix.exists()
 
 
 @pytest.fixture
@@ -73,6 +113,33 @@ def test_resolve_chooses_official_stable_linux_archives(installer, monkeypatch):
                 },
             }
         ),
+        "https://registry.npmjs.org/npm/next-11": json.dumps(
+            {
+                "version": "11.0.0",
+                "dist": {
+                    "tarball": "https://registry.npmjs.org/npm/-/npm-11.0.0.tgz",
+                    "integrity": "sha512-" + base64.b64encode(b"m" * 64).decode(),
+                },
+            }
+        ),
+        **{
+            f"https://api.github.com/repos/{repository}/releases/latest": json.dumps(
+                {
+                    "tag_name": "v1.0.0",
+                    "assets": [
+                        {
+                            "name": filename,
+                            "browser_download_url": "https://github.com/example/tool.tar.gz",
+                            "digest": "sha256:" + "f" * 64,
+                        }
+                    ],
+                }
+            )
+            for repository, filename in [
+                ("actions/runner", "actions-runner-linux-x64-1.0.0.tar.gz"),
+                ("anchore/syft", "syft_1.0.0_linux_amd64.tar.gz"),
+            ]
+        },
         "https://api.github.com/repos/docker/buildx/releases/latest": json.dumps(
             {
                 "tag_name": "v0.38.2",
@@ -105,7 +172,13 @@ def test_resolve_chooses_official_stable_linux_archives(installer, monkeypatch):
         "rustc",
         "rust-std",
         "cargo",
+        "actions-runner",
+        "syft",
+        "npm-node20",
+        "npm-node24",
     }
+    assert result["npm-node24"] == result["npm"]
+    assert result["npm-node20"]["version"] == "11.0.0"
 
 
 def test_unpack_rejects_tampering_before_extraction(installer, tmp_path, monkeypatch):
@@ -331,3 +404,40 @@ def test_buildx_binary_is_verified_before_install_and_executable(
         installer["install_buildx"](prefix, spec, tmp_path)
         assert destination.read_bytes() == content
         assert destination.stat().st_mode & 0o777 == 0o755
+
+
+def test_runner_npm_installs_the_plan_without_resolving_again(
+    installer, tmp_path, monkeypatch
+):
+    specifications = {
+        "npm-node20": {"version": "11.21.2", "url": "https://example.com/npm11"},
+        "npm-node24": {"version": "12.2.2", "url": "https://example.com/npm12"},
+    }
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(json.dumps(specifications))
+    runner = tmp_path / "runner"
+    for runtime in ["node20", "node24"]:
+        (runner / "externals" / runtime / "bin").mkdir(parents=True)
+        (runner / "externals" / runtime / "bin/node").write_text("official node")
+
+    def no_resolve(*args):
+        raise AssertionError("must use the planned version")
+
+    def unpack(spec, directory):
+        package = directory / "package"
+        (package / "bin").mkdir(parents=True)
+        (package / "package.json").write_text(json.dumps({"version": spec["version"]}))
+        for name in ["npm", "npx"]:
+            (package / f"bin/{name}-cli.js").write_text("CLI")
+        return directory
+
+    monkeypatch.setitem(
+        installer["refresh_runner_npm"].__globals__, "resolve_npm", no_resolve
+    )
+    monkeypatch.setitem(installer["refresh_runner_npm"].__globals__, "unpack", unpack)
+    installer["refresh_runner_npm"](runner, receipt)
+    assert json.loads(receipt.read_text()) == specifications
+    for runtime in ["node20", "node24"]:
+        prefix = runner / "externals" / runtime
+        assert (prefix / "bin/npm").read_text() == "CLI"
+        assert (prefix / "bin/node").read_text() == "official node"
