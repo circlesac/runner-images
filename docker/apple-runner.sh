@@ -6,7 +6,17 @@ test "$(id -u)" = 0
 dockerd --host unix:///var/run/docker.sock --group docker >/tmp/runner-dockerd.log 2>&1 &
 daemon=$!
 child=''
-trap '[[ -z "$child" ]] || kill -TERM "$child" 2>/dev/null || true; kill -TERM "$daemon" 2>/dev/null || true' TERM INT EXIT
+cleanup() {
+	trap - EXIT
+	[[ -z "$child" ]] || kill -TERM "$child" 2>/dev/null || true
+	[[ -z "$child" ]] || wait "$child" 2>/dev/null || true
+	# This daemon belongs to this VM and this job only. Let containerd and
+	# its cgroups finish before Apple's VM runtime deletes the process.
+	kill -TERM "$daemon" 2>/dev/null || true
+	wait "$daemon" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap '[[ -z "$child" ]] || kill -TERM "$child" 2>/dev/null || true' TERM INT
 ready=false
 for _ in $(seq 1 120); do
 	kill -0 "$daemon"
@@ -30,4 +40,6 @@ while kill -0 "$child" 2>/dev/null; do
 	wait "$child"
 	status=$?
 done
+child=''
+cleanup
 exit "$status"
