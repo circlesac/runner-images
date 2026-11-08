@@ -110,3 +110,49 @@ def test_unpack_keeps_relative_executable_symlinks(installer, tmp_path, monkeypa
     )
     assert (root / "node/bin/npm").is_symlink()
     assert (root / "node/bin/npm").read_bytes() == b"test"
+
+
+def test_unpack_recovers_from_a_real_interrupted_download(installer, tmp_path):
+    import http.server
+    import threading
+
+    data = io.BytesIO()
+    with tarfile.open(fileobj=data, mode="w:gz") as archive:
+        entry = tarfile.TarInfo("tool/version")
+        entry.size = 3
+        archive.addfile(entry, io.BytesIO(b"1.0"))
+    content = data.getvalue()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        attempts = 0
+
+        def do_GET(self):
+            Handler.attempts += 1
+            partial = Handler.attempts == 1
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(content[:8] if partial else content)
+            self.close_connection = True
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        root = installer["unpack"](
+            {
+                "url": f"http://127.0.0.1:{server.server_port}/tool.tar.gz",
+                "sha256": hashlib.sha256(content).hexdigest(),
+            },
+            tmp_path,
+        )
+        assert (root / "tool/version").read_bytes() == b"1.0"
+        assert Handler.attempts == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
