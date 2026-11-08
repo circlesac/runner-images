@@ -34,10 +34,18 @@ RUN curl -fsSL --retry 5 "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VE
     && { yes || true; } | sdkmanager --licenses >/dev/null
 RUN sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1' \
     && chown -R runner:docker "$ANDROID_HOME"
+# Apple Container runs a private Docker daemon inside each Linux VM for
+# container jobs; the Docker execution mode continues using its host socket.
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && printf '%s\n' 'deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable' > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
 # runscaler starts /home/runner/run.sh. Each real runner distribution and its
 # workspace are copied into a unique daemon-visible shared-volume directory.
 RUN mv /home/runner /opt/actions-runner && mkdir /home/runner && chown runner:docker /home/runner
 COPY --chmod=755 docker/runner.sh /home/runner/run.sh
+COPY --chmod=755 docker/apple-runner.sh /usr/local/bin/apple-runner
 COPY --chmod=755 docker/verify-toolchain.sh /usr/local/bin/verify-runner-toolchain
 COPY runner_images /opt/runner-inventory/runner_images
 COPY scripts/inventory.py /opt/runner-inventory/scripts/inventory.py

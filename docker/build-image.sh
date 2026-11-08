@@ -5,10 +5,17 @@ cd "$(dirname "$0")/.."
 image=${1:?Local destination image tag is required}
 [[ "$image" =~ ^[a-zA-Z0-9][a-zA-Z0-9/:._-]*$ ]]
 test -z "$(git status --porcelain --untracked-files=no)"
+if docker image inspect "$image" >/dev/null 2>&1; then
+	echo 'Destination image already exists; choose a new candidate tag.' >&2
+	exit 1
+fi
 source_commit=$(git rev-parse HEAD)
 mkdir -p artifacts/docker
 bundle=$(mktemp -d artifacts/docker/build.XXXXXX)
-python3 docker/resolve-inputs.py >"$bundle/inputs.json"
+context=$(mktemp -d)
+trap 'rm -rf "$context"' EXIT
+git archive "$source_commit" | tar -x -C "$context"
+python3 "$context/docker/resolve-inputs.py" >"$bundle/inputs.json"
 docker pull --platform linux/arm64 ghcr.io/actions/actions-runner:latest
 base=$(docker image inspect ghcr.io/actions/actions-runner:latest --format '{{index .RepoDigests 0}}')
 args=()
@@ -18,7 +25,7 @@ import json,sys
 for key,value in json.load(open(sys.argv[1])).items(): print(key.upper()+'='+value)
 PY
 )
-docker build --platform linux/arm64 --pull --build-arg "RUNNER_BASE=$base" "${args[@]}" -f docker/Dockerfile -t "$image" .
+docker build --platform linux/arm64 --pull --build-arg "RUNNER_BASE=$base" "${args[@]}" -f "$context/docker/Dockerfile" -t "$image" "$context"
 docker run --rm "$image" /usr/local/bin/verify-runner-toolchain >"$bundle/toolchain-check.txt" 2>&1
 docker run --rm "$image" python3 /opt/runner-inventory/scripts/inventory.py >"$bundle/inventory.json"
 docker image inspect "$image" --format '{{json .}}' | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({k:x[k] for k in ["Id","Architecture","Os"]}))' >"$bundle/image.json"
