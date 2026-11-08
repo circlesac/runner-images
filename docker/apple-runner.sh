@@ -31,7 +31,8 @@ if [[ "$ready" != true ]]; then
 	exit 1
 fi
 cd /opt/actions-runner
-sudo --preserve-env=ACTIONS_RUNNER_INPUT_JITCONFIG -u runner ./run.sh &
+export HOME=/home/runner USER=runner LOGNAME=runner
+runuser --preserve-environment -u runner -- ./run.sh &
 child=$!
 set +e
 wait "$child"
