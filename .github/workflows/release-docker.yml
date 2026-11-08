@@ -44,6 +44,7 @@ jobs:
           BUNDLE: ${{ steps.build.outputs.bundle }}
         run: python3 docker/release-image.py prepare "$BUNDLE" --image runner-candidate:release
       - uses: actions/attest@v4.2.2
+        if: steps.publication.outputs.already_released != 'true'
         id: provenance
         with:
           subject-name: ${{ steps.publication.outputs.subject }}
@@ -51,6 +52,7 @@ jobs:
           predicate-type: https://circles.ac/runner-images/docker-build/v1
           predicate-path: ${{ steps.build.outputs.bundle }}/qualification.json
       - uses: actions/attest-sbom@v4.1.0
+        if: steps.publication.outputs.already_released != 'true'
         id: sbom
         with:
           subject-name: ${{ steps.publication.outputs.subject }}
@@ -62,9 +64,12 @@ jobs:
           BUNDLE: ${{ steps.build.outputs.bundle }}
           PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
           SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+          ALREADY_RELEASED: ${{ steps.publication.outputs.already_released }}
         run: |
-          cp "$PROVENANCE_BUNDLE" "$BUNDLE/provenance.sigstore.json"
-          cp "$SBOM_BUNDLE" "$BUNDLE/sbom.sigstore.json"
+          if [[ "$ALREADY_RELEASED" != true ]]; then
+            cp "$PROVENANCE_BUNDLE" "$BUNDLE/provenance.sigstore.json"
+            cp "$SBOM_BUNDLE" "$BUNDLE/sbom.sigstore.json"
+          fi
           python3 docker/release-image.py publish "$BUNDLE"
       - uses: actions/upload-artifact@v7
         if: always()
