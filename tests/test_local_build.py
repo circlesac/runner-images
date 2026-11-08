@@ -309,3 +309,15 @@ def test_late_consumer_failure_records_pending_and_can_resume(local, monkeypatch
     local_build.rebuild(root, "xcode")
     assert json.loads(journal.read_text())["done"]
     assert count(state, ["bash", "macos/build-image.sh"]) == 1
+
+
+def test_empty_xdg_config_home_uses_standard_home_fallback(local, monkeypatch):
+    root, state = local
+    monkeypatch.setattr(local_build.Path, "home", lambda: root)
+    config = root / ".config/runner-images/xcode/after-release.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps(["/example/consumer"]))
+    local_build.consume_release(
+        root, "xcode", root / "release.json", {"XDG_CONFIG_HOME": ""}
+    )
+    assert state["calls"][-1] == ["/example/consumer", str(root.resolve())]

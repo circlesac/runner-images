@@ -34,7 +34,7 @@ def consume_release(
     root: Path, profile: str, receipt: Path, env: dict[str, str]
 ) -> None:
     """Run an explicitly registered, host-local consumer after publication."""
-    config = Path(env.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    config = Path(env.get("XDG_CONFIG_HOME") or str(Path.home() / ".config"))
     hook = config / "runner-images" / profile / "after-release.json"
     if not hook.exists():
         return
