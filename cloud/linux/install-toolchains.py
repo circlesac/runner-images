@@ -102,6 +102,14 @@ def resolve() -> dict[str, dict[str, str]]:
         if item["name"].startswith("git-lfs-linux-amd64-")
         and item["name"].endswith(".tar.gz")
     )
+    buildx = json.loads(
+        read("https://api.github.com/repos/docker/buildx/releases/latest")
+    )
+    buildx_asset = next(
+        item
+        for item in buildx["assets"]
+        if item["name"] == f"buildx-{buildx['tag_name']}.linux-amd64"
+    )
     result = {
         "node": {
             "version": node["version"],
@@ -119,6 +127,11 @@ def resolve() -> dict[str, dict[str, str]]:
             "sha256": asset["digest"].removeprefix("sha256:"),
         },
         "npm": resolve_npm(),
+        "buildx": {
+            "version": buildx["tag_name"],
+            "url": buildx_asset["browser_download_url"],
+            "sha256": buildx_asset["digest"].removeprefix("sha256:"),
+        },
     }
     for component in ("rustc", "rust-std", "cargo"):
         package = rust["pkg"][component]
@@ -131,24 +144,37 @@ def resolve() -> dict[str, dict[str, str]]:
     return result
 
 
-def unpack(spec: dict[str, str], directory: Path) -> Path:
+def verified_download(spec: dict[str, str], archive: Path) -> None:
     algorithm = "sha512" if "sha512" in spec else "sha256"
     if not re.fullmatch(
         r"[a-f0-9]{128}" if algorithm == "sha512" else r"[a-f0-9]{64}",
         spec[algorithm],
     ):
         raise ValueError("missing or invalid official archive checksum")
-    archive = directory / "download.tar"
     download(spec["url"], archive)
     with archive.open("rb") as stream:
         actual = hashlib.file_digest(stream, algorithm).hexdigest()
     if actual != spec[algorithm]:
         raise ValueError("official toolchain archive checksum mismatch")
+
+
+def unpack(spec: dict[str, str], directory: Path) -> Path:
+    archive = directory / "download.tar"
+    verified_download(spec, archive)
     extracted = directory / "extracted"
     extracted.mkdir()
     with tarfile.open(archive) as stream:
         stream.extractall(extracted, filter="data")
     return extracted
+
+
+def install_buildx(prefix: Path, spec: dict[str, str], directory: Path) -> None:
+    binary = directory / "docker-buildx"
+    verified_download(spec, binary)
+    destination = prefix / "lib/docker/cli-plugins/docker-buildx"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(binary, destination)
+    destination.chmod(0o755)
 
 
 def install_npm(prefix: Path, spec: dict[str, str], extracted: Path) -> None:
@@ -189,6 +215,10 @@ def install(prefix: Path, receipt: Path) -> None:
     (prefix / "bin").mkdir(exist_ok=True)
     for name, spec in specifications.items():
         with tempfile.TemporaryDirectory() as directory:
+            if name == "buildx":
+                install_buildx(prefix, spec, Path(directory))
+                print(f"Installed {name} {spec['version']}", flush=True)
+                continue
             extracted = unpack(spec, Path(directory))
             if name == "node":
                 shutil.copytree(

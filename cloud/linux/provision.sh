@@ -17,7 +17,10 @@ sudo install -m 0644 /tmp/runner-docker.asc /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 printf '%s\n' 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable' | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
 sudo apt-get update
-sudo -E apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo -E apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# The official Buildx security release can precede its apt package. Remove the
+# older package completely before installing the verified upstream plugin.
+sudo apt-get remove -y docker-buildx-plugin
 sudo python3 /tmp/runner-source/install-toolchains.py /usr/local /tmp/runner-evidence/toolchains.json
 sudo ln -s /usr/local/go/bin/go /usr/local/bin/go
 sudo ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
