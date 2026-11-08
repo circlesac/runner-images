@@ -1,7 +1,7 @@
 [project]
 name = "circlesac-runner-images"
 version = "0.0.0"
-description = "Build, qualify and compare macOS and Docker GitHub Actions runner images"
+description = "Build, qualify and compare macOS and OCI GitHub Actions runner images"
 requires-python = ">=3.11"
 dependencies = []
 

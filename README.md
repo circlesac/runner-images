@@ -1,10 +1,10 @@
-# macOS and Docker runner images
+# macOS and OCI runner images
 
-Build and qualify macOS Tart and Linux Docker GitHub Actions runner images. Collect the GitHub-hosted `macos-26` reference, build local Tart images, compare the installed capabilities, and publish verified images with their evidence.
+Build and qualify macOS Tart and Linux OCI GitHub Actions runner images for Docker and Apple Container. Collect the GitHub-hosted `macos-26` reference, build local Tart images, compare the installed capabilities, and publish verified images with their evidence.
 
 ## Supported scope
 
-- Images: macOS 26 ARM64 (`xcode`, `xcode-android`) and Ubuntu 24.04 ARM64 Docker (`ubuntu-24.04-android`).
+- Images: macOS 26 ARM64 (`xcode`, `xcode-android`) and Ubuntu 24.04 ARM64 OCI (`ubuntu-24.04-android`, Docker or Apple Container).
 - Reference snapshots: the actual GitHub-hosted `macos-26` image.
 - Building: an Apple Silicon Mac using Tart, or a native ARM64 Docker host. GitHub Actions validates the evidence and publishes the release.
 - CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. The Docker image has its own native build and publication workflow.
@@ -104,7 +104,7 @@ Git is the durable store: `qualifications/tart/PROFILE/RECEIPT_SHA256/` contains
 
 The VM itself is stored as `ghcr.io/circlesac/runner-images/macos-26-PROFILE:macos-26-PROFILE-local-BUILD_ID`. Use the immutable `@sha256:…` reference shown in the release notes to clone it with Tart. GitHub Releases contain the version, pull command and verification evidence, rather than another multi-gigabyte copy of the VM. Package visibility follows GHCR permissions and is not changed automatically; a public release page does not imply anonymous registry access. Fleet adoption remains the consumer's decision.
 
-The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. The first real build, upload and release through this factory remains to be verified; fixture tests do not establish that end-to-end result. Public PR checks use hosted runners and controlled external-boundary fixtures.
+The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. A complete Tart build/upload/release/adoption run requires separate integration verification; fixture tests do not establish that end-to-end result. Public PR checks use hosted runners and controlled external-boundary fixtures.
 
 ## Development and verification
 
@@ -138,3 +138,21 @@ The `mac-sbom` job in [Check](.github/workflows/check.yml) runs `scripts/check-s
 The issue command can notify a host-local image consumer after it reads a published release receipt from `origin/main`. Register a JSON command array at `${XDG_CONFIG_HOME:-~/.config}/runner-images/circlesac/<profile>/after-release.json`, for example `["/absolute/path/to/example-consumer"]`. The command receives the absolute qualification-bundle directory as its last argument. Arguments are passed directly, without a shell. No consumer configuration or credentials are committed here.
 
 This callback also runs for an already published matching image, so registering later or repeating a failed adoption does not require another build. A callback failure fails the local command and leaves its journal unfinished. The public rebuild issue tracks image publication and closes after verified release publication; private consumer adoption is recorded by that consumer. Without a registered callback the command only publishes the image and never changes a fleet.
+
+## Linux OCI images: Docker and Apple Container
+
+The `ubuntu-24.04-android` image runs natively on ARM64 Ubuntu 24.04. It includes the official Actions runner, the latest Node.js LTS resolved from its checksum manifest, Java 17, Android 36, NDK 27.1.12297006 and CMake 3.22.1. Android command-line tools resolve from Google's current repository metadata and their archive checksum. Java/Android package versions preserve the declared build-tool contract; they do not imply complete GitHub-hosted Linux image parity.
+
+From a clean committed checkout on a native ARM64 Docker host:
+
+```sh
+bash docker/build-image.sh example-runner:local
+```
+
+The builder archives the exact Git revision, resolves immutable base/input identities, builds a new candidate without replacing an existing image, runs native checks and captures its Linux inventory. Passing evidence is retained under an independent `artifacts/docker/build.*/` bundle. The Linux product uses these toolchain checks and measured inventory; the hosted reference snapshot currently belongs to macOS only.
+
+[Build Docker runner image](.github/workflows/build-docker.yml) runs this same build on native hosted ARM64 runners for matching pull requests and main pushes. It installs x86 emulation for Google's Linux Android executables. Docker images do not create human-run rebuild issues. [Release verified Docker image](.github/workflows/release-docker.yml) is a main-only manual publication gate: it rebuilds, generates the SBOM, rejects High/Critical findings, pushes the qualified image, verifies its immutable digest, signs build/SBOM evidence and publishes checksummed release assets. CalVer tags use `docker-ubuntu-24.04-android@YY.MM.MICRO`; verified receipts are retained in `qualifications/docker/`. Registry visibility remains an independent operator setting.
+
+Docker execution uses runscaler's supported Docker provider and `/home/runner/run.sh`. Mount its named workspace volume at the Docker daemon's actual absolute mountpoint and pass that path as `SHARED_DIR`. Each JIT runner copies its distribution into a unique directory so sibling job containers can see both checkout files and Actions runtime tools. Successful unmounted attempts are removed; failed or still-mounted attempts are preserved. App keys stay with the controller; only the JIT configuration reaches the job container.
+
+Apple Container uses the same OCI image with `/usr/local/bin/apple-runner`, Rosetta, root inside the isolated Linux VM, all guest capabilities and cleared guest read-only/masked paths. That entrypoint starts a private Docker daemon **inside the job VM**, then runs the JIT listener as `runner`. This supports Docker/container jobs without sharing a Mac Docker daemon. Normal completion waits for the private daemon to stop before the VM is deleted. The standard runscaler release has no Apple Container provider; the consumer must provide a separately tested adapter. Runtime provisioning, controller authentication, readiness monitoring and fleet cutover belong to the consuming repository.
