@@ -1,6 +1,15 @@
-# Runner images
+# macOS runner images
 
-Inspect and compare GitHub Actions runner images on Apple Silicon Macs. Collect the hosted `macos-26` reference, build local Tart images, and compare actual capabilities on Darwin/arm64. Linux and cloud VM image design—including GCP/Azure recipes—lives in the public [`melten-ai/runner-images`](https://github.com/melten-ai/runner-images) checkout; this repository keeps the Circles macOS product only.
+Build and qualify macOS GitHub Actions runner images on Apple Silicon Macs. Collect the GitHub-hosted `macos-26` reference, build local Tart images, compare the installed capabilities, and publish verified images with their evidence.
+
+## Supported scope
+
+- Images: macOS 26 on ARM64, with `xcode` and `xcode-android` profiles.
+- Reference snapshots: the actual GitHub-hosted `macos-26` image.
+- Building: a local Apple Silicon Mac using Tart. GitHub Actions validates the evidence and publishes the release.
+- CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. These jobs do not build or release Linux images.
+
+The generic inventory schema still accepts Linux observations for compatibility. The image recipes, reference collection, rebuild reminders and releases in this repository are macOS-only.
 
 ## What is measured
 
@@ -13,7 +22,7 @@ Comparison fails for unexpected missing capabilities and stale allowlist entries
 
 ## Run locally
 
-Python 3.11 or newer is the only runtime dependency. Run the same collector on each machine; it needs neither cloud credentials nor root access.
+Python 3.11 or newer is the only runtime dependency. Run the same collector on each Mac; it needs neither service credentials nor root access.
 
 ```sh
 python3 scripts/inventory.py > candidate.json
@@ -29,7 +38,7 @@ The [Hosted reference inventories](https://github.com/circlesac/runner-images/ac
 
 **Git is the durable reference:** [`snapshots/github-hosted/`](snapshots/github-hosted/) contains the current measured JSON for that image. Changed commands, caches, environment names or image versions produce a commit; identical observations produce no commit. Git history preserves previous observations and readable diffs. Observation timestamps and run counters are not inserted into snapshots, so reruns do not create artificial changes. Initial snapshots were captured by [the verified hosted run](https://github.com/circlesac/runner-images/actions/runs/42367660196).
 
-Artifacts transfer the macOS observation to the Git recording job on Ubuntu. That job validates the observation, updates only the snapshot directory, and commits with the workflow token. Public PRs cannot write snapshots; only trusted main runs can. Publishing is serialized, starts from current main, and never force-pushes over a concurrent change. A failed/incomplete observation preserves the previous references. Scheduled recording starts once this workflow is merged to the default branch.
+Artifacts transfer the macOS observation to the Git recording job on Ubuntu. That job validates the observation, updates only the snapshot directory, and commits with the workflow token. Public PRs cannot write snapshots; only trusted main runs can. Publishing is serialized, starts from current main, and never force-pushes over a concurrent change. A failed/incomplete observation preserves the previous references.
 
 The root composite Action collects a candidate:
 
@@ -39,17 +48,22 @@ The root composite Action collects a candidate:
     output: candidate.json
 ```
 
-Compare after downloading the matching reference artifact:
+Check out the factory reference at the same reviewed revision before comparing:
 
 ```yaml
+- uses: actions/checkout@v7
+  with:
+    repository: circlesac/runner-images
+    ref: VERIFIED_COMMIT
+    path: .runner-images
 - uses: circlesac/runner-images/compare@VERIFIED_COMMIT
   with:
-    reference: reference/inventory.json
+    reference: .runner-images/snapshots/github-hosted/macos-26.json
     candidate: candidate.json
     allowlist: accepted-missing.txt
 ```
 
-Replace `VERIFIED_COMMIT` with the reviewed code revision. Consumers fetch the public repository’s main branch, read `snapshots/github-hosted/macos-26.json`, and retain that reference commit with their comparison evidence. Reading versioned references needs no Actions-artifact permission or expiring artifact URL. During initial adoption before the public PR is merged, the same verified PR commit also contains the seeded snapshots.
+Replace `VERIFIED_COMMIT` with the reviewed code revision. Consumers fetch the public repository’s main branch, read `snapshots/github-hosted/macos-26.json`, and retain that reference commit with their comparison evidence. Reading versioned references needs no Actions-artifact permission or expiring artifact URL.
 
 Candidate machines run in their owning private workflows. This repository does not accept public PR code on a private self-hosted runner and never uploads private candidate inventories. Reference collection uses standard GitHub-hosted public-repository runners.
 
@@ -90,7 +104,7 @@ Git is the durable store: `qualifications/tart/PROFILE/RECEIPT_SHA256/` contains
 
 The VM itself is stored as `ghcr.io/circlesac/runner-images/macos-26-PROFILE:macos-26-PROFILE-local-BUILD_ID`. Use the immutable `@sha256:…` reference shown in the release notes to clone it with Tart. GitHub Releases contain the version, pull command and verification evidence, rather than another multi-gigabyte copy of the VM. Package visibility follows GHCR permissions and is not changed automatically; a public release page does not imply anonymous registry access. Fleet adoption remains the consumer's decision.
 
-The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. This PR implements the command and workflow; the first real local build/upload/release remains to be run after merge. Public PR checks use hosted runners and controlled external-boundary fixtures.
+The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. The first real build, upload and release through this factory remains to be verified; fixture tests do not establish that end-to-end result. Public PR checks use hosted runners and controlled external-boundary fixtures.
 
 ## Development and verification
 
@@ -113,11 +127,11 @@ The `mac-sbom` job in [Check](.github/workflows/check.yml) runs `scripts/check-s
 | Pyright | 1.1.414 | 2026-09-10 | Strict typed collection/comparison boundary |
 | shfmt / ShellCheck | 3.14.1 / 0.11.0 locally | Distribution packages in CI | Maintained native shell formatter/linter; avoids an interpreter-based formatter or bashate lint pipeline |
 
-`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. Fresh-image boot/Actions validation on fleet hardware, Windows, version-level probes and official upstream test integration remain future work.
+`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. A complete build/upload/release/adoption run, version-level probes and official upstream test integration require separate integration verification.
 
 ## Related projects
 
-[actions/runner-images](https://github.com/actions/runner-images) is the official upstream source for toolsets, provisioning, software reports and runtime tests. [runner-drift](https://github.com/Booyaka101/runner-drift) monitors selected tool-version changes and migrations. [Mactions](https://github.com/Kyter-com/Mactions) manages ephemeral runners and documents hosted differences. [melten-ai/runner-images](https://github.com/melten-ai/runner-images) carries the same design for Linux and cloud VM images. This repository compares observations from actual machines rather than treating a published manifest as proof of a candidate’s contents.
+[actions/runner-images](https://github.com/actions/runner-images) is the official upstream source for toolsets, provisioning, software reports and runtime tests. [runner-drift](https://github.com/Booyaka101/runner-drift) monitors selected tool-version changes and migrations. [Mactions](https://github.com/Kyter-com/Mactions) manages ephemeral runners and documents hosted differences. This repository compares observations from actual machines rather than treating a published manifest as proof of a candidate’s contents.
 
 ### Local consumers after macOS publication
 

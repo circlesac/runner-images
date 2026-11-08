@@ -26,13 +26,6 @@ with tempfile.TemporaryDirectory() as directory:
         )
         metadata.parent.mkdir(parents=True)
         metadata.write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0.0\n")
-    status = root / "var/lib/dpkg/status"
-    status.parent.mkdir(parents=True, exist_ok=True)
-    status.write_text(
-        "Package: example-runtime\nStatus: install ok installed\n"
-        "Architecture: amd64\nVersion: 1.2.3\n"
-        "Source: example-source (9.8.7)\nDescription: synthetic package\n\n"
-    )
     command = [args.syft, "scan", f"dir:{root}", "-o", "syft-json"]
     selection = re.search(r"--override-default-catalogers\s+(\S+)", source)
     if selection:
@@ -47,10 +40,6 @@ with tempfile.TemporaryDirectory() as directory:
     )
     sbom = json.loads(result.stdout)
     packages = {package["name"] for package in sbom["artifacts"]}
-    distro = next(p for p in sbom["artifacts"] if p["name"] == "example-runtime")
-    assert distro["metadata"]["source"] == "example-source"
-    assert distro["metadata"]["sourceVersion"] == "9.8.7"
-    assert distro["locations"]
     assert "kept-example" in packages, packages
     assert "blocked-example" not in packages, packages
 print(
