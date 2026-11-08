@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -31,6 +32,11 @@ def download(url: str, destination: Path) -> None:
 
 
 def read(url: str) -> bytes:
+    # Hosted CI reuses its normal GitHub CLI token; no token is passed to guests.
+    if url.startswith("https://api.github.com/") and os.environ.get("GH_TOKEN"):
+        return subprocess.run(
+            ["gh", "api", url], check=True, capture_output=True
+        ).stdout
     # A real file lets curl discard a partial response before retrying.
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "response"

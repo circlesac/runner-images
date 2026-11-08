@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import runpy
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -156,3 +157,40 @@ def test_unpack_recovers_from_a_real_interrupted_download(installer, tmp_path):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def test_ci_github_metadata_uses_existing_gh_auth_without_token_arguments(
+    installer, monkeypatch
+):
+    monkeypatch.setenv("GH_TOKEN", "example-ci-token")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, b'{"tag_name":"v1.0.0"}')
+
+    monkeypatch.setattr(installer["subprocess"], "run", run)
+    body = installer["read"](
+        "https://api.github.com/repos/example/tool/releases/latest"
+    )
+    assert json.loads(body)["tag_name"] == "v1.0.0"
+    assert calls == [
+        ["gh", "api", "https://api.github.com/repos/example/tool/releases/latest"]
+    ]
+    assert "example-ci-token" not in str(calls)
+
+
+def test_github_auth_is_not_sent_to_other_metadata_hosts(installer, monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "example-ci-token")
+    calls = []
+
+    def download(url, path):
+        calls.append(url)
+        path.write_bytes(b'{"version":"1.0.0"}')
+
+    monkeypatch.setitem(installer["read"].__globals__, "download", download)
+    assert (
+        json.loads(installer["read"]("https://example.com/metadata"))["version"]
+        == "1.0.0"
+    )
+    assert calls == ["https://example.com/metadata"]
