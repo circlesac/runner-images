@@ -77,7 +77,7 @@ jobs:
       - uses: anchore/scan-action@v7.4.2
         if: steps.plan.outputs.needed == 'true'
         with:
-          sbom: artifacts/cloud/${{ inputs.provider }}/sbom.spdx.json
+          sbom: artifacts/cloud/${{ inputs.provider }}/sbom.syft.json
           fail-build: true
           severity-cutoff: high
           output-format: json
@@ -121,6 +121,8 @@ jobs:
             artifacts/cloud/${{ inputs.provider }}/inventory.json
             artifacts/cloud/${{ inputs.provider }}/toolchain-check.txt
             artifacts/cloud/${{ inputs.provider }}/sbom.spdx.json
+            artifacts/cloud/${{ inputs.provider }}/sbom.syft.json
+            artifacts/cloud/${{ inputs.provider }}/toolchains.json
             artifacts/cloud/${{ inputs.provider }}/comparison.json
             artifacts/cloud/${{ inputs.provider }}/packer-manifest.json
             artifacts/cloud/${{ inputs.provider }}/vulnerabilities.json

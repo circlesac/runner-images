@@ -89,6 +89,10 @@ build {
     source      = "runner_images"
     destination = "/tmp/runner-source/"
   }
+  provisioner "file" {
+    source      = "cloud/linux/install-toolchains.py"
+    destination = "/tmp/runner-source/install-toolchains.py"
+  }
   provisioner "shell" {
     scripts = ["cloud/linux/provision.sh", "cloud/linux/verify.sh"]
   }
@@ -106,6 +110,16 @@ build {
     direction   = "download"
     source      = "/tmp/runner-evidence/sbom.spdx.json"
     destination = "${var.output_directory}sbom.spdx.json"
+  }
+  provisioner "file" {
+    direction   = "download"
+    source      = "/tmp/runner-evidence/sbom.syft.json"
+    destination = "${var.output_directory}sbom.syft.json"
+  }
+  provisioner "file" {
+    direction   = "download"
+    source      = "/tmp/runner-evidence/toolchains.json"
+    destination = "${var.output_directory}toolchains.json"
   }
   provisioner "shell" {
     inline = ["sudo rm -rf /tmp/runner-source /tmp/runner-evidence /tmp/actions-runner.tar.gz /tmp/syft.deb", "sudo rm -f /home/runnerbuilder/.ssh/authorized_keys", "sudo apt-get clean", "sudo cloud-init clean --logs --seed", "sudo truncate -s 0 /etc/machine-id"]
