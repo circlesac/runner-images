@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -12,10 +13,35 @@ import tomllib
 from pathlib import Path
 
 
+def download(url: str, destination: Path) -> None:
+    subprocess.run(
+        [
+            "curl",
+            "-fsSL",
+            "--retry",
+            "5",
+            "--retry-all-errors",
+            "--retry-delay",
+            "2",
+            url,
+            "-o",
+            str(destination),
+        ],
+        check=True,
+    )
+
+
 def read(url: str) -> bytes:
-    return subprocess.run(
-        ["curl", "-fsSL", "--retry", "5", url], check=True, capture_output=True
-    ).stdout
+    # Hosted CI reuses its normal GitHub CLI token; no token is passed to guests.
+    if url.startswith("https://api.github.com/") and os.environ.get("GH_TOKEN"):
+        return subprocess.run(
+            ["gh", "api", url], check=True, capture_output=True
+        ).stdout
+    # A real file lets curl discard a partial response before retrying.
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "response"
+        download(url, path)
+        return path.read_bytes()
 
 
 def resolve() -> dict[str, dict[str, str]]:
@@ -87,10 +113,7 @@ def unpack(spec: dict[str, str], directory: Path) -> Path:
     if not re.fullmatch(r"[a-f0-9]{64}", spec["sha256"]):
         raise ValueError("missing or invalid official archive checksum")
     archive = directory / "download.tar"
-    subprocess.run(
-        ["curl", "-fsSL", "--retry", "5", spec["url"], "-o", str(archive)],
-        check=True,
-    )
+    download(spec["url"], archive)
     with archive.open("rb") as stream:
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != spec["sha256"]:

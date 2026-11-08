@@ -56,6 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install official checksum-verified toolchains in an isolated prefix
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 cloud/linux/install-toolchains.py "$RUNNER_TEMP/toolchains" "$RUNNER_TEMP/toolchains.json"
           export PATH="$RUNNER_TEMP/toolchains/bin:$RUNNER_TEMP/toolchains/go/bin:$PATH"

@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import runpy
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -110,3 +111,86 @@ def test_unpack_keeps_relative_executable_symlinks(installer, tmp_path, monkeypa
     )
     assert (root / "node/bin/npm").is_symlink()
     assert (root / "node/bin/npm").read_bytes() == b"test"
+
+
+def test_unpack_recovers_from_a_real_interrupted_download(installer, tmp_path):
+    import http.server
+    import threading
+
+    data = io.BytesIO()
+    with tarfile.open(fileobj=data, mode="w:gz") as archive:
+        entry = tarfile.TarInfo("tool/version")
+        entry.size = 3
+        archive.addfile(entry, io.BytesIO(b"1.0"))
+    content = data.getvalue()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        attempts = 0
+
+        def do_GET(self):
+            Handler.attempts += 1
+            partial = Handler.attempts == 1
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(content[:8] if partial else content)
+            self.close_connection = True
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        root = installer["unpack"](
+            {
+                "url": f"http://127.0.0.1:{server.server_port}/tool.tar.gz",
+                "sha256": hashlib.sha256(content).hexdigest(),
+            },
+            tmp_path,
+        )
+        assert (root / "tool/version").read_bytes() == b"1.0"
+        assert Handler.attempts == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_ci_github_metadata_uses_existing_gh_auth_without_token_arguments(
+    installer, monkeypatch
+):
+    monkeypatch.setenv("GH_TOKEN", "example-ci-token")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, b'{"tag_name":"v1.0.0"}')
+
+    monkeypatch.setattr(installer["subprocess"], "run", run)
+    body = installer["read"](
+        "https://api.github.com/repos/example/tool/releases/latest"
+    )
+    assert json.loads(body)["tag_name"] == "v1.0.0"
+    assert calls == [
+        ["gh", "api", "https://api.github.com/repos/example/tool/releases/latest"]
+    ]
+    assert "example-ci-token" not in str(calls)
+
+
+def test_github_auth_is_not_sent_to_other_metadata_hosts(installer, monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "example-ci-token")
+    calls = []
+
+    def download(url, path):
+        calls.append(url)
+        path.write_bytes(b'{"version":"1.0.0"}')
+
+    monkeypatch.setitem(installer["read"].__globals__, "download", download)
+    assert (
+        json.loads(installer["read"]("https://example.com/metadata"))["version"]
+        == "1.0.0"
+    )
+    assert calls == ["https://example.com/metadata"]
