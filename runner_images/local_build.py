@@ -35,7 +35,7 @@ def consume_release(
 ) -> None:
     """Run an explicitly registered, host-local consumer after publication."""
     config = Path(env.get("XDG_CONFIG_HOME") or str(Path.home() / ".config"))
-    hook = config / "runner-images" / profile / "after-release.json"
+    hook = config / "runner-images" / "circlesac" / profile / "after-release.json"
     if not hook.exists():
         return
     command: object = json.loads(hook.read_text())

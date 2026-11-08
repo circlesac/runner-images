@@ -12,7 +12,7 @@ from runner_images.qualification import read_object
 def input_id(root: Path, profile: str) -> str:
     if profile not in ("xcode", "xcode-android"):
         raise ValueError("unknown profile")
-    # Hash build inputs, excluding generated evidence and Linux observations.
+    # Hash build inputs, excluding generated evidence.
     names = [
         ".github/workflows/release-tart.yml",
         "snapshots/github-hosted/macos-26.json",
@@ -25,10 +25,7 @@ def input_id(root: Path, profile: str) -> str:
         ("scripts", "*.sh"),
     ):
         names.extend(
-            str(p.relative_to(root))
-            for p in (root / directory).rglob(pattern)
-            if p.name
-            not in ("cloud.py", "cloud-image.py", "commit-cloud.sh", "check-cloud.py")
+            str(p.relative_to(root)) for p in (root / directory).rglob(pattern)
         )
     result = hashlib.sha256(profile.encode())
     for name in sorted(set(names)):

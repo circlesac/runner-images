@@ -14,7 +14,7 @@ if ! python3 -c 'import sys; assert sys.version_info >= (3, 11)' 2>/dev/null; th
 	python_prefix=$(brew --prefix python@3.13)
 	export PATH="$python_prefix/libexec/bin:$PATH"
 fi
-state="${XDG_STATE_HOME:-$HOME/.local/state}/runner-images/$profile"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/runner-images/circlesac/$profile"
 mkdir -p "$state"
 if [[ ! -d "$state/source/.git" ]]; then
 	gh repo clone https://github.com/circlesac/runner-images.git "$state/source" -- --branch main

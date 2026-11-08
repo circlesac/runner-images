@@ -8,10 +8,7 @@ from runner_images.compare import load
 
 def update(source: Path, destination: Path) -> list[str]:
     pending: dict[Path, str] = {}
-    for label, operating_system, architecture in (
-        ("ubuntu-24.04", "linux", "x86_64"),
-        ("macos-26", "darwin", "arm64"),
-    ):
+    for label, operating_system, architecture in (("macos-26", "darwin", "arm64"),):
         inventory = load(source / f"reference-{label}" / "inventory.json")
         if (inventory["os"], inventory["arch"]) != (operating_system, architecture):
             raise ValueError("reference observation does not match its label")

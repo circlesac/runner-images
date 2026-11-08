@@ -10,10 +10,7 @@ from runner_images.snapshots import update
 
 def observations(tmp_path):
     source = tmp_path / "observations"
-    for label, operating_system, arch in (
-        ("ubuntu-24.04", "linux", "x86_64"),
-        ("macos-26", "darwin", "arm64"),
-    ):
+    for label, operating_system, arch in (("macos-26", "darwin", "arm64"),):
         file = source / f"reference-{label}" / "inventory.json"
         file.parent.mkdir(parents=True)
         file.write_text(
@@ -31,10 +28,23 @@ def observations(tmp_path):
     return source
 
 
+def test_mac_only_observation_requires_no_ubuntu_artifact(tmp_path):
+    source = observations(tmp_path)
+    assert not (source / "reference-ubuntu-24.04").exists()
+    target = tmp_path / "snapshots"
+    changed = update(source, target)
+    assert changed == ["macos-26.json"]
+    only = list(target.iterdir())
+    assert len(only) == 1 and only[0].name == "macos-26.json"
+    data = json.loads((target / "macos-26.json").read_text())
+    assert data["os"] == "darwin" and data["arch"] == "arm64"
+    assert data["image_os"] and data["image_version"]
+
+
 def test_initial_repeat_and_change(tmp_path):
     source = observations(tmp_path)
     target = tmp_path / "snapshots"
-    assert update(source, target) == ["ubuntu-24.04.json", "macos-26.json"]
+    assert update(source, target) == ["macos-26.json"]
     previous = {
         p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in target.iterdir()
     }

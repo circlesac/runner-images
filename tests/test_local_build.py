@@ -1,5 +1,6 @@
 import fcntl
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -217,7 +218,7 @@ def test_consumer_failure_retries_without_rebuilding_or_duplicate_release(
     local, monkeypatch
 ):
     root, state = local
-    config = root / "local config/runner-images/xcode/after-release.json"
+    config = root / "local config/runner-images/circlesac/xcode/after-release.json"
     config.parent.mkdir(parents=True)
     config.write_text(json.dumps(["/example/consumer", "argument with spaces"]))
     original = local_build.invoke
@@ -255,7 +256,7 @@ def test_consumer_failure_retries_without_rebuilding_or_duplicate_release(
 @pytest.mark.parametrize("command", [[], "echo unsafe", [""], [42]])
 def test_invalid_consumer_registration_fails_after_release(local, command):
     root, _ = local
-    config = root / "local config/runner-images/xcode/after-release.json"
+    config = root / "local config/runner-images/circlesac/xcode/after-release.json"
     config.parent.mkdir(parents=True)
     config.write_text(json.dumps(command))
     with pytest.raises(ValueError, match="command array"):
@@ -314,10 +315,72 @@ def test_late_consumer_failure_records_pending_and_can_resume(local, monkeypatch
 def test_empty_xdg_config_home_uses_standard_home_fallback(local, monkeypatch):
     root, state = local
     monkeypatch.setattr(local_build.Path, "home", lambda: root)
-    config = root / ".config/runner-images/xcode/after-release.json"
+    config = root / ".config/runner-images/circlesac/xcode/after-release.json"
     config.parent.mkdir(parents=True)
     config.write_text(json.dumps(["/example/consumer"]))
     local_build.consume_release(
         root, "xcode", root / "release.json", {"XDG_CONFIG_HOME": ""}
     )
     assert state["calls"][-1] == ["/example/consumer", str(root.resolve())]
+
+
+def test_other_factory_callback_is_never_invoked(local):
+    root, state = local
+    config = root / "local config"
+    other = config / "runner-images/melten-ai/xcode/after-release.json"
+    other.parent.mkdir(parents=True)
+    other.write_text(json.dumps(["/example/other-consumer"]))
+    env = {"XDG_CONFIG_HOME": str(config)}
+    local_build.consume_release(root, "xcode", root / "release.json", env)
+    assert not state["calls"]
+    own = config / "runner-images/circlesac/xcode/after-release.json"
+    own.parent.mkdir(parents=True)
+    own.write_text(json.dumps(["/example/own-consumer"]))
+    local_build.consume_release(root, "xcode", root / "release.json", env)
+    assert state["calls"] == [["/example/own-consumer", str(root.resolve())]]
+
+
+def test_bootstrap_uses_own_factory_checkout_without_touching_other_factory(tmp_path):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    state = tmp_path / "state"
+    other = state / "runner-images/melten-ai/xcode/source"
+    other.mkdir(parents=True)
+    (other / "marker").write_text("other factory")
+    scripts = {
+        "uname": """#!/bin/bash
+if [[ $1 == -s ]]; then echo Darwin; else echo arm64; fi
+""",
+        "gh": """#!/bin/bash
+if [[ $1 == repo ]]; then
+  [[ $3 == https://github.com/circlesac/runner-images.git ]] || exit 9
+  mkdir -p "$4/.git"
+fi
+""",
+        "git": "#!/bin/bash\nexit 0\n",
+        "python3": """#!/bin/bash
+if [[ $1 != -c ]]; then pwd >"$TEST_BOOTSTRAP_RESULT"; fi
+""",
+    }
+    for name in ("tart", "jq", "grype"):
+        scripts[name] = "#!/bin/bash\nexit 0\n"
+    for name, content in scripts.items():
+        path = tools / name
+        path.write_text(content)
+        path.chmod(0o755)
+    result = tmp_path / "result"
+    env = dict(
+        os.environ,
+        PATH=str(tools) + ":" + os.environ["PATH"],
+        XDG_STATE_HOME=str(state),
+        TEST_BOOTSTRAP_RESULT=str(result),
+    )
+    root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        ["bash", str(root / "macos/rebuild.sh"), "xcode"], env=env, check=True
+    )
+    assert (
+        Path(result.read_text().strip())
+        == state / "runner-images/circlesac/xcode/source"
+    )
+    assert (other / "marker").read_text() == "other factory"
