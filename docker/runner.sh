@@ -3,8 +3,14 @@
 set -euo pipefail
 : "${SHARED_DIR:?runscaler shared-volume must name the daemon-visible work root}"
 : "${ACTIONS_RUNNER_INPUT_JITCONFIG:?JIT configuration is required}"
-[[ "$SHARED_DIR" == /* && "$SHARED_DIR" != / && "$SHARED_DIR" != *..* ]]
-[[ "$HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]+$ ]]
+[[ "$SHARED_DIR" == /* && "$SHARED_DIR" != / && "$SHARED_DIR" != *..* ]] || {
+	echo "Invalid shared work root" >&2
+	exit 2
+}
+[[ "$HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]+$ ]] || {
+	echo "Invalid runner hostname" >&2
+	exit 2
+}
 root="$SHARED_DIR/$HOSTNAME"
 # An existing directory belongs to a previous attempt and must be preserved.
 mkdir "$root"

@@ -49,7 +49,14 @@ exit 2
 def run(runner, **changes):
     command, _, env = runner
     return subprocess.run(
-        ["bash", str(command)],
+        [
+            "bash",
+            "-c",
+            'HOSTNAME="$1"; source "$2"',
+            "runner-test",
+            dict(env, **changes)["HOSTNAME"],
+            str(command),
+        ],
         env=dict(env, **changes),
         capture_output=True,
         text=True,
