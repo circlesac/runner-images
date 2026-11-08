@@ -73,6 +73,19 @@ def test_resolve_chooses_official_stable_linux_archives(installer, monkeypatch):
                 },
             }
         ),
+        "https://api.github.com/repos/docker/buildx/releases/latest": json.dumps(
+            {
+                "tag_name": "v0.38.2",
+                "assets": [
+                    {
+                        "name": "buildx-v0.38.2.linux-amd64",
+                        "browser_download_url": "https://github.com/docker/buildx/example",
+                        "digest": "sha256:" + "e" * 64,
+                    },
+                    {"name": "buildx-v0.38.2.linux-arm64"},
+                ],
+            }
+        ),
     }
     monkeypatch.setitem(
         installer["resolve"].__globals__, "read", lambda url: documents[url].encode()
@@ -82,7 +95,17 @@ def test_resolve_chooses_official_stable_linux_archives(installer, monkeypatch):
     assert result["go"]["url"].endswith("linux-amd64.tar.gz")
     assert result["git-lfs"]["sha256"] == "d" * 64
     assert result["npm"]["sha512"] == (b"n" * 64).hex()
-    assert set(result) == {"node", "npm", "go", "git-lfs", "rustc", "rust-std", "cargo"}
+    assert result["buildx"]["sha256"] == "e" * 64
+    assert set(result) == {
+        "node",
+        "npm",
+        "buildx",
+        "go",
+        "git-lfs",
+        "rustc",
+        "rust-std",
+        "cargo",
+    }
 
 
 def test_unpack_rejects_tampering_before_extraction(installer, tmp_path, monkeypatch):
@@ -282,3 +305,29 @@ def test_legacy_npm_resolution_rejects_incompatible_or_unverified_release(
     )
     with pytest.raises(ValueError, match=message):
         installer["resolve_npm"]("next-11")
+
+
+@pytest.mark.parametrize("tampered", [False, True])
+def test_buildx_binary_is_verified_before_install_and_executable(
+    installer, tmp_path, monkeypatch, tampered
+):
+    content = b"example official Buildx binary"
+    monkeypatch.setitem(
+        installer["verified_download"].__globals__,
+        "download",
+        lambda url, path: path.write_bytes(b"tampered" if tampered else content),
+    )
+    prefix = tmp_path / "prefix"
+    spec = {
+        "url": "https://example.com/buildx",
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+    destination = prefix / "lib/docker/cli-plugins/docker-buildx"
+    if tampered:
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            installer["install_buildx"](prefix, spec, tmp_path)
+        assert not destination.exists()
+    else:
+        installer["install_buildx"](prefix, spec, tmp_path)
+        assert destination.read_bytes() == content
+        assert destination.stat().st_mode & 0o777 == 0o755

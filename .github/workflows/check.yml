@@ -63,6 +63,7 @@ jobs:
           export PATH="$RUNNER_TEMP/toolchains/bin:$RUNNER_TEMP/toolchains/go/bin:$PATH"
           node --version
           npm --version
+          "$RUNNER_TEMP/toolchains/lib/docker/cli-plugins/docker-buildx" version
           git-lfs version
           go version
           rustc --version
