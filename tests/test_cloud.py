@@ -123,6 +123,22 @@ def fixture(tmp_path, monkeypatch, request):
                     }
                 )
             )
+            (folder / "sbom.syft.json").write_text(
+                json.dumps(
+                    {
+                        "artifacts": []
+                        if external["fail"] == "native-sbom"
+                        else [{"name": "example", "version": "1.0"}],
+                    }
+                )
+            )
+            (folder / "toolchains.json").write_text(
+                json.dumps(
+                    {}
+                    if external["fail"] == "receipts"
+                    else {"node": {"version": "v24.0.0", "sha256": "a" * 64}}
+                )
+            )
             artifact = state["build_id"] if provider == "gcp" else state["image_id"]
             (folder / "packer-manifest.json").write_text(
                 json.dumps(
@@ -240,7 +256,17 @@ def test_plan_build_publish_noop_and_new_inputs(fixture):
 
 
 @pytest.mark.parametrize(
-    "failure", ["packer", "image", "platform", "native", "sbom", "manifest"]
+    "failure",
+    [
+        "packer",
+        "image",
+        "platform",
+        "native",
+        "sbom",
+        "native-sbom",
+        "receipts",
+        "manifest",
+    ],
 )
 def test_failed_build_cannot_reach_release(fixture, failure):
     root, provider, state = fixture

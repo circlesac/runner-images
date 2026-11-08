@@ -75,7 +75,11 @@ def inputs(root: Path, provider: str, settings: dict[str, str], base: str) -> st
     names += [
         str(p.relative_to(root))
         for p in (root / "cloud").rglob("*")
-        if p.is_file() and p.suffix in (".hcl", ".sh")
+        if p.is_file()
+        and (
+            p.suffix in (".hcl", ".sh")
+            or (p.parent.name == "linux" and p.suffix == ".py")
+        )
     ]
     value = hashlib.sha256(
         json.dumps([provider, settings, base], sort_keys=True).encode()
@@ -355,6 +359,11 @@ def build(root: Path, provider: str) -> None:
     sbom = read_object(path.parent / "sbom.spdx.json")
     if sbom.get("spdxVersion") != "SPDX-2.3" or not sbom.get("packages"):
         raise ValueError("cloud image SBOM is empty or invalid")
+    native_sbom = read_object(path.parent / "sbom.syft.json")
+    if not native_sbom.get("artifacts"):
+        raise ValueError("native cloud image SBOM is empty or invalid")
+    if not read_object(path.parent / "toolchains.json"):
+        raise ValueError("toolchain download receipts are empty")
     # Basic profile smoke is the release gate; hosted parity is an honest report.
     comparison = compare(
         load(root / "snapshots/github-hosted/ubuntu-24.04.json"), inventory, None
@@ -370,6 +379,8 @@ def build(root: Path, provider: str) -> None:
                 "inventory.json",
                 "toolchain-check.txt",
                 "sbom.spdx.json",
+                "sbom.syft.json",
+                "toolchains.json",
                 "comparison.json",
                 "packer-manifest.json",
             )
