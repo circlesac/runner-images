@@ -26,6 +26,9 @@ for key,value in json.load(open(sys.argv[1])).items(): print(key.upper()+'='+val
 PY
 )
 docker build --platform linux/arm64 --pull --build-arg "RUNNER_BASE=$base" "${args[@]}" -f "$context/docker/Dockerfile" -t "$image" "$context"
+# Registration files must be absent in the shipped image; active runtime
+# smoke checks legitimately have a JIT registration in this directory.
+docker run --rm "$image" /bin/bash -c 'test ! -e /opt/actions-runner/.credentials && test ! -e /opt/actions-runner/.runner'
 docker run --rm "$image" /usr/local/bin/verify-runner-toolchain >"$bundle/toolchain-check.txt" 2>&1
 docker run --rm "$image" python3 /opt/runner-inventory/scripts/inventory.py >"$bundle/inventory.json"
 docker image inspect "$image" --format '{{json .}}' | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({k:x[k] for k in ["Id","Architecture","Os"]}))' >"$bundle/image.json"

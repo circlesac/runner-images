@@ -17,6 +17,24 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def checked_receipt(bundle):
+    receipt = json.loads((bundle / "qualification.json").read_text())
+    if receipt["status"] != "qualified" or receipt["profile"] != "ubuntu-24.04-android":
+        raise ValueError("unsupported qualification")
+    if set(receipt["evidence"]) != {
+        "inputs.json",
+        "inventory.json",
+        "toolchain-check.txt",
+        "image.json",
+    }:
+        raise ValueError("qualification evidence is incomplete")
+    for name, digest in receipt["evidence"].items():
+        path = bundle / name
+        if path.is_symlink() or not path.is_file() or file_hash(path) != digest:
+            raise ValueError("qualification evidence changed")
+    return receipt
+
+
 def existing(identity):
     pages = json.loads(
         command(
@@ -39,22 +57,8 @@ def existing(identity):
 
 
 def prepare(image, bundle):
-    receipt = json.loads((bundle / "qualification.json").read_text())
+    receipt = checked_receipt(bundle)
     identity = file_hash(bundle / "qualification.json")
-    if receipt["status"] != "qualified" or receipt["profile"] != "ubuntu-24.04-android":
-        raise ValueError("unsupported qualification")
-    for name, digest in receipt["evidence"].items():
-        if (
-            name
-            not in (
-                "inputs.json",
-                "inventory.json",
-                "toolchain-check.txt",
-                "image.json",
-            )
-            or file_hash(bundle / name) != digest
-        ):
-            raise ValueError("qualification evidence changed")
     head = command("git", "rev-parse", "HEAD")
     if (
         receipt["source_commit"] != head
@@ -67,6 +71,50 @@ def prepare(image, bundle):
         current["Architecture"],
     ) != ("linux", "arm64"):
         raise ValueError("qualified image identity/platform changed")
+    release = existing(identity)
+    if release is not None and not release["draft"]:
+        names = (
+            "qualification.json",
+            "inputs.json",
+            "inventory.json",
+            "image.json",
+            "toolchain-check.txt",
+            "publication.json",
+            "sbom.spdx.json",
+            "vulnerabilities.json",
+            "provenance.sigstore.json",
+            "sbom.sigstore.json",
+        )
+        by_name = {a["name"]: a for a in release["assets"]}
+        for name in names:
+            subprocess.run(
+                [
+                    "gh",
+                    "release",
+                    "download",
+                    release["tag_name"],
+                    "--repo",
+                    "circlesac/runner-images",
+                    "--pattern",
+                    name,
+                    "--dir",
+                    str(bundle),
+                    "--clobber",
+                ],
+                check=True,
+            )
+            if by_name.get(name, {}).get("digest") != "sha256:" + file_hash(
+                bundle / name
+            ):
+                raise ValueError("published release asset checksum differs")
+        publication = json.loads((bundle / "publication.json").read_text())
+        if publication["qualification_sha256"] != identity:
+            raise ValueError("published receipt identity differs")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                output.write("already_released=true\n")
+        print("Already published; reuse signed evidence and repair only Git recording.")
+        return
     with (bundle / "sbom.spdx.json").open("w") as output:
         subprocess.run(
             ["syft", "scan", f"docker:{image}", "-o", "spdx-json"],
@@ -100,7 +148,6 @@ def prepare(image, bundle):
         for d in remote["RepoDigests"]
         if d.startswith(target.split(":q-")[0] + "@sha256:")
     )
-    release = existing(identity)
     if release is None:
         version_file = bundle / "version.go"
         version_file.write_text('package release\nconst Version = "0.0.0"\n')
@@ -164,6 +211,7 @@ def prepare(image, bundle):
 
 
 def publish(bundle):
+    receipt = checked_receipt(bundle)
     publication = json.loads((bundle / "publication.json").read_text())
     identity = publication["qualification_sha256"]
     if file_hash(bundle / "qualification.json") != identity:
@@ -176,6 +224,46 @@ def publish(bundle):
     ):
         if not (bundle / name).is_file() or not (bundle / name).stat().st_size:
             raise ValueError("signed security evidence is incomplete")
+    if publication["source_commit"] != receipt["source_commit"]:
+        raise ValueError("publication source changed")
+    for name, predicate_type, expected in (
+        (
+            "provenance.sigstore.json",
+            "https://circles.ac/runner-images/docker-build/v1",
+            receipt,
+        ),
+        (
+            "sbom.sigstore.json",
+            "https://spdx.dev/Document",
+            json.loads((bundle / "sbom.spdx.json").read_text()),
+        ),
+    ):
+        verified = json.loads(
+            command(
+                "gh",
+                "attestation",
+                "verify",
+                "oci://" + publication["reference"],
+                "--bundle",
+                str(bundle / name),
+                "--repo",
+                "circlesac/runner-images",
+                "--signer-workflow",
+                "circlesac/runner-images/.github/workflows/release-docker.yml",
+                "--source-ref",
+                "refs/heads/main",
+                "--predicate-type",
+                predicate_type,
+                "--format",
+                "json",
+            )
+        )
+        if not any(
+            item.get("verificationResult", {}).get("statement", {}).get("predicate")
+            == expected
+            for item in verified
+        ):
+            raise ValueError("signed predicate differs from the release evidence")
     release = existing(identity)
     if release is None or release["tag_name"] != publication["tag"]:
         raise ValueError("matching release not found")
@@ -194,19 +282,20 @@ def publish(bundle):
             "sbom.sigstore.json",
         )
     ]
-    subprocess.run(
-        [
-            "gh",
-            "release",
-            "upload",
-            publication["tag"],
-            "--repo",
-            "circlesac/runner-images",
-            "--clobber",
-            *map(str, assets),
-        ],
-        check=True,
-    )
+    if release["draft"]:
+        subprocess.run(
+            [
+                "gh",
+                "release",
+                "upload",
+                publication["tag"],
+                "--repo",
+                "circlesac/runner-images",
+                "--clobber",
+                *map(str, assets),
+            ],
+            check=True,
+        )
     readback = json.loads(
         command("gh", "api", f"repos/circlesac/runner-images/releases/{release['id']}")
     )
