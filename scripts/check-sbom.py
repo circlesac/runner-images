@@ -37,7 +37,15 @@ for recipe, excluded in (
             "Architecture: amd64\nVersion: 1.2.3\n"
             "Source: example-source (9.8.7)\nDescription: synthetic package\n\n"
         )
+        (root / "requirements-test.txt").write_text("declared-only-example==1.2.3\n")
+        (root / "go.mod").write_text(
+            "module example.org/test\n\ngo 1.25\n\n"
+            "require example.org/declared-only v1.2.3\n"
+        )
         command = [args.syft, "scan", f"dir:{root}", "-o", "syft-json"]
+        selection = re.search(r"--override-default-catalogers\s+(\S+)", source)
+        if selection:
+            command += ["--override-default-catalogers", selection.group(1)]
         for pattern in patterns:
             command += ["--exclude", pattern]
         scope = re.search(r"--scope\s+(\S+)", source)
@@ -54,6 +62,9 @@ for recipe, excluded in (
         assert distro["locations"]
         assert "kept-example" in packages, packages
         assert "blocked-example" not in packages, packages
+        if recipe.startswith("cloud/"):
+            assert "declared-only-example" not in packages, packages
+            assert "example.org/declared-only" not in packages, packages
     print(
         f"{recipe}: actual Syft scan retains installed software "
         "and excludes transient data"

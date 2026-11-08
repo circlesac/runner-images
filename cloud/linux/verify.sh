@@ -43,7 +43,7 @@ with open('/tmp/runner-evidence/inventory.json', 'w') as stream:
 PY
 # Remove package downloads before scanning the installed image, not after it.
 sudo apt-get clean
-sudo env SYFT_GOLANG_CAPTURE_SYMBOLS=all syft scan dir:/ \
+sudo env SYFT_GOLANG_CAPTURE_SYMBOLS=all /tmp/runner-tools/syft scan dir:/ --override-default-catalogers image \
 	--exclude './proc/**' --exclude './sys/**' --exclude './dev/**' \
 	--exclude './tmp/**' --exclude './var/log/**' --exclude './var/lib/cloud/**' \
 	--exclude './var/lib/waagent/**' --exclude './root/**' \
