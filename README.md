@@ -1,15 +1,15 @@
-# macOS runner images
+# macOS and Docker runner images
 
-Build and qualify macOS GitHub Actions runner images on Apple Silicon Macs. Collect the GitHub-hosted `macos-26` reference, build local Tart images, compare the installed capabilities, and publish verified images with their evidence.
+Build and qualify macOS Tart and Linux Docker GitHub Actions runner images. Collect the GitHub-hosted `macos-26` reference, build local Tart images, compare the installed capabilities, and publish verified images with their evidence.
 
 ## Supported scope
 
-- Images: macOS 26 on ARM64, with `xcode` and `xcode-android` profiles.
+- Images: macOS 26 ARM64 (`xcode`, `xcode-android`) and Ubuntu 24.04 ARM64 Docker (`ubuntu-24.04-android`).
 - Reference snapshots: the actual GitHub-hosted `macos-26` image.
-- Building: a local Apple Silicon Mac using Tart. GitHub Actions validates the evidence and publishes the release.
-- CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. These jobs do not build or release Linux images.
+- Building: an Apple Silicon Mac using Tart, or a native ARM64 Docker host. GitHub Actions validates the evidence and publishes the release.
+- CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. The Docker image has its own native build and publication workflow.
 
-The generic inventory schema still accepts Linux observations for compatibility. The image recipes, reference collection, rebuild reminders and releases in this repository are macOS-only.
+Tart rebuild reminders remain macOS-only. Docker images build in Actions and do not need a human-run rebuild issue. Cloud VM recipes are outside this repository’s scope.
 
 ## What is measured
 
