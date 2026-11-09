@@ -7,7 +7,7 @@ Build and qualify macOS Tart and Linux OCI GitHub Actions runner images for Dock
 - Images: macOS 26 ARM64 (`xcode`, `xcode-android`) and Ubuntu 24.04 ARM64 OCI (`ubuntu-24.04-android`, Docker or Apple Container).
 - Reference snapshots: the actual GitHub-hosted `macos-26` image.
 - Building: an Apple Silicon Mac using Tart, or a native ARM64 Docker host. GitHub Actions validates the evidence and publishes the release.
-- CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. The Docker image has its own native build and publication workflow.
+- CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. The Docker image has its own native build and publication workflow. Base OS security updates are applied during each build. Release scanning retains a lossless Syft SBOM with Go function symbols for vulnerability matching, alongside standard SPDX evidence for attestations; the High/Critical release gate remains enforced.
 
 Tart rebuild reminders remain macOS-only. Docker images build in Actions and do not need a human-run rebuild issue. Cloud VM recipes are outside this repository’s scope.
 

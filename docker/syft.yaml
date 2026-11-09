@@ -1,0 +1,3 @@
+# Preserve real Go function evidence instead of matching every dependency module.
+golang:
+  capture-symbols: all

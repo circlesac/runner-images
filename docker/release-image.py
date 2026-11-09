@@ -81,6 +81,7 @@ def prepare(image, bundle):
             "toolchain-check.txt",
             "publication.json",
             "sbom.spdx.json",
+            "sbom.syft.json",
             "vulnerabilities.json",
             "provenance.sigstore.json",
             "sbom.sigstore.json",
@@ -115,18 +116,35 @@ def prepare(image, bundle):
                 output.write("already_released=true\n")
         print("Already published; reuse signed evidence and repair only Git recording.")
         return
-    with (bundle / "sbom.spdx.json").open("w") as output:
+    with (bundle / "sbom.syft.json").open("w") as output:
         subprocess.run(
-            ["syft", "scan", f"docker:{image}", "-o", "spdx-json"],
+            [
+                "syft",
+                "scan",
+                f"docker:{image}",
+                "--config",
+                str(Path(__file__).with_name("syft.yaml")),
+                "-o",
+                "syft-json",
+            ],
             stdout=output,
             check=True,
             timeout=900,
+        )
+    # SPDX is retained for standard attestations; Grype consumes the lossless
+    # Syft representation so symbol and package-location metadata survive.
+    with (bundle / "sbom.spdx.json").open("w") as output:
+        subprocess.run(
+            ["syft", "convert", str(bundle / "sbom.syft.json"), "-o", "spdx-json"],
+            stdout=output,
+            check=True,
+            timeout=300,
         )
     with (bundle / "vulnerabilities.json").open("w") as output:
         subprocess.run(
             [
                 "grype",
-                f"sbom:{bundle / 'sbom.spdx.json'}",
+                f"sbom:{bundle / 'sbom.syft.json'}",
                 "-o",
                 "json",
                 "--fail-on",
@@ -220,6 +238,7 @@ def publish(bundle):
         "provenance.sigstore.json",
         "sbom.sigstore.json",
         "sbom.spdx.json",
+        "sbom.syft.json",
         "vulnerabilities.json",
     ):
         if not (bundle / name).is_file() or not (bundle / name).stat().st_size:
@@ -277,6 +296,7 @@ def publish(bundle):
             "toolchain-check.txt",
             "publication.json",
             "sbom.spdx.json",
+            "sbom.syft.json",
             "vulnerabilities.json",
             "provenance.sigstore.json",
             "sbom.sigstore.json",
