@@ -31,10 +31,12 @@ if grep -q Traceback "$work/lldb.log"; then exit 1; fi
 printf 'int main(void) { return 0; }\n' >"$work/native.c"
 "$ndk/bin/aarch64-linux-android26-clang" "$work/native.c" -o "$work/native"
 # This is the SDK's reduced Kotlin/PSI compiler, exercised through Android lint.
-mkdir -p "$work/project/src"
+mkdir -p "$work/project/src" "$work/project/bin/classes"
 printf '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.smoke"><uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/><application/></manifest>\n' >"$work/project/AndroidManifest.xml"
-printf 'fun main() { println("lint-passed") }\n' >"$work/project/src/Main.kt"
-lint --quiet --check LintError,NewApi --text "$work/lint.txt" "$work/project"
+printf 'public class Smoke { public int value() { return 1; } }\n' >"$work/project/src/Smoke.java"
+javac -d "$work/project/bin/classes" "$work/project/src/Smoke.java"
+printf 'fun smoke() = android.app.NotificationChannel("id", "name", 3)\n' >"$work/project/src/Main.kt"
+lint --quiet --exitcode --check LintError,NewApi --text "$work/lint.txt" "$work/project"
 cat "$work/lint.txt"
 "$ANDROID_HOME/build-tools/36.0.0/aapt2" link -o "$work/smoke.apk" -I "$ANDROID_HOME/platforms/android-36/android.jar" --manifest "$work/project/AndroidManifest.xml"
 docker buildx version
