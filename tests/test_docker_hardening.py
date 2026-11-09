@@ -119,3 +119,55 @@ def test_maven_resolution_keeps_compatible_major_and_records_actual_checksum(
     assert value["version"] == "3.30.17"
     assert value["sha256"] == hashlib.sha256(b"verified jar").hexdigest()
     assert calls[-1].endswith("/3.30.17/library-3.30.17.jar")
+
+
+def test_shaded_dependency_without_maven_metadata_still_remains_in_the_sbom(tmp_path):
+    target = jar(tmp_path / "compiler.jar", {"com/google/protobuf/Old.class": "old"})
+    replacement = jar(
+        tmp_path / "protobuf.jar", {"com/google/protobuf/New.class": "fixed"}
+    )
+    original = target.read_bytes()
+    with pytest.raises(ValueError, match="version evidence"):
+        hardening.patch_jar(target, {"protobuf-java": replacement})
+    assert target.read_bytes() == original
+    hardening.patch_jar(
+        target, {"protobuf-java": replacement}, {"protobuf-java": "3.25.9"}
+    )
+    with zipfile.ZipFile(target) as result:
+        metadata = result.read(
+            "META-INF/maven/com.google.protobuf/protobuf-java/pom.properties"
+        )
+        assert b"version=3.25.9" in metadata
+        assert b"artifactId=protobuf-java" in metadata
+
+
+def test_sdk_replacement_keeps_signed_bytes_and_updates_consumer_classpath(tmp_path):
+    android = tmp_path / "sdk"
+    old = (
+        android
+        / "external/org/bouncycastle/bcprov-jdk18on/1.80.2/bcprov-jdk18on-1.80.2.jar"
+    )
+    old.parent.mkdir(parents=True)
+    jar(old, {"old.class": "vulnerable"})
+    reference = str(old.relative_to(android))
+    classpath = jar(
+        android / "lint-classpath.jar",
+        {"META-INF/MANIFEST.MF": f"Class-Path: {reference}\n", "keep.txt": "preserved"},
+    )
+    replacement = jar(
+        tmp_path / "new.jar",
+        {"META-INF/SIGNER.SF": "signature", "fixed.class": "patched"},
+    )
+    hardening.upgrade_sdk_jar(android, "bcprov-jdk18on", replacement, "1.86")
+    new = (
+        android
+        / "external/org/bouncycastle/bcprov-jdk18on/1.86/bcprov-jdk18on-1.86.jar"
+    )
+    assert new.read_bytes() == replacement.read_bytes()
+    assert not old.exists()
+    with zipfile.ZipFile(classpath) as output:
+        assert output.read("keep.txt") == b"preserved"
+        assert reference.encode() not in output.read("META-INF/MANIFEST.MF")
+        assert str(new.relative_to(android)).encode() in output.read(
+            "META-INF/MANIFEST.MF"
+        )

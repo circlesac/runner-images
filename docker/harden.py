@@ -22,7 +22,7 @@ def download(item, destination):
     return destination
 
 
-def patch_jar(target, replacements):
+def patch_jar(target, replacements, versions=None):
     """Replace complete embedded dependency namespaces and their version metadata."""
     package_roots = {
         "protobuf-java": ("com/google/protobuf/", "com.google.protobuf"),
@@ -69,9 +69,53 @@ def patch_jar(target, replacements):
                             continue
                         output.writestr(entry, dependency.read(entry))
                         names.add(entry.filename)
+                metadata = f"META-INF/maven/{group}/{name}/pom.properties"
+                if metadata not in names:
+                    if versions is None or name not in versions:
+                        raise ValueError("replacement version evidence is missing")
+                    output.writestr(
+                        metadata,
+                        f"groupId={group}\nartifactId={name}\nversion={versions[name]}\n",
+                    )
+                    names.add(metadata)
         staged.replace(target)
     finally:
         staged.unlink(missing_ok=True)
+
+
+def upgrade_sdk_jar(android, name, replacement, version):
+    matches = list(android.glob(f"external/**/{name}-*.jar"))
+    if len(matches) != 1:
+        raise ValueError("expected one SDK dependency: " + name)
+    old = matches[0]
+    new = old.parent.parent / version / f"{name}-{version}.jar"
+    new.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(replacement, new)
+    if old == new:
+        return
+    # Signed upstream dependencies stay byte-for-byte intact. Only unsigned SDK
+    # classpath manifests change to reference the real replacement version.
+    for classpath in android.glob("*-classpath.jar"):
+        staged = classpath.with_suffix(".patched.jar")
+        try:
+            with (
+                zipfile.ZipFile(classpath) as source,
+                zipfile.ZipFile(staged, "w") as output,
+            ):
+                for entry in source.infolist():
+                    if entry.filename.upper().endswith((".SF", ".RSA", ".DSA")):
+                        raise ValueError("refusing to edit a signed classpath archive")
+                    data = source.read(entry)
+                    if entry.filename == "META-INF/MANIFEST.MF":
+                        data = data.replace(
+                            str(old.relative_to(android)).encode(),
+                            str(new.relative_to(android)).encode(),
+                        )
+                    output.writestr(entry, data)
+            staged.replace(classpath)
+        finally:
+            staged.unlink(missing_ok=True)
+    old.unlink()
 
 
 def harden(inputs):
@@ -137,20 +181,19 @@ def harden(inputs):
         }
         android = Path("/opt/android-sdk/cmdline-tools/latest/lib")
         compiler = android / "external/lint-psi/kotlin-compiler/kotlin-compiler-mvn.jar"
+        versions = {name: item["version"] for name, item in inputs["jars"].items()}
         patch_jar(
             compiler,
             {
                 name: jars[name]
                 for name in ["protobuf-java", "jline-builtins", "jline-remote-telnet"]
             },
+            versions,
         )
         for name in ["bcprov-jdk18on", "guava"]:
-            matches = list(android.glob(f"external/**/{name}-*.jar"))
-            if len(matches) != 1:
-                raise ValueError("expected one SDK dependency: " + name)
-            shutil.copy2(jars[name], matches[0])
+            upgrade_sdk_jar(android, name, jars[name], versions[name])
         for cache in Path("/root/.android/cli/bundles").glob("*/main.jar"):
-            patch_jar(cache, {"guava": jars["guava"]})
+            patch_jar(cache, {"guava": jars["guava"]}, versions)
         tools = Path("/opt/runner-security-tools")
         for output, paths in {
             "docker-buildx": [
@@ -164,6 +207,9 @@ def harden(inputs):
             for path in paths:
                 shutil.copy2(tools / output, path)
                 os.chmod(path, 0o755)
+        subprocess.run(
+            ["chown", "-R", "runner:docker", str(runner), str(python_root)], check=True
+        )
         shutil.rmtree(Path("/root/.npm"), ignore_errors=True)
         Path("/opt/runner-security-inputs.json").write_text(
             json.dumps(inputs, indent=2)
