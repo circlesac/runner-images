@@ -19,6 +19,7 @@ RUN test "$TARGETARCH" = arm64 \
        'Components: main universe restricted multiverse' 'Architectures: amd64' \
        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' > /etc/apt/sources.list.d/amd64.sources \
     && dpkg --add-architecture amd64 && apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends libc6:amd64 libstdc++6:amd64 zlib1g:amd64 \
        openjdk-17-jdk-headless python3 rsync shellcheck make g++ unzip zip xz-utils \
     && rm -rf /var/lib/apt/lists/*
