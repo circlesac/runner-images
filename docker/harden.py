@@ -39,34 +39,39 @@ def patch_jar(target, replacements):
         ]
     ]
     staged = target.with_suffix(".patched.jar")
-    with (
-        zipfile.ZipFile(target) as old,
-        zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as output,
-    ):
-        names = set()
-        for entry in old.infolist():
-            if any(entry.filename.startswith(prefix) for prefix in removed):
-                continue
-            if entry.filename.upper().startswith(
-                "META-INF/"
-            ) and entry.filename.upper().endswith((".SF", ".RSA", ".DSA")):
-                raise ValueError("refusing to edit a signed shaded archive")
-            output.writestr(entry, old.read(entry))
-            names.add(entry.filename)
-        for name, path in replacements.items():
-            root, group = package_roots[name]
-            with zipfile.ZipFile(path) as dependency:
-                for entry in dependency.infolist():
-                    if not (
-                        entry.filename.startswith(root)
-                        or entry.filename.startswith(f"META-INF/maven/{group}/{name}/")
-                    ):
-                        continue
-                    if entry.filename in names:
-                        continue
-                    output.writestr(entry, dependency.read(entry))
-                    names.add(entry.filename)
-    staged.replace(target)
+    try:
+        with (
+            zipfile.ZipFile(target) as old,
+            zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as output,
+        ):
+            names = set()
+            for entry in old.infolist():
+                if any(entry.filename.startswith(prefix) for prefix in removed):
+                    continue
+                if entry.filename.upper().startswith(
+                    "META-INF/"
+                ) and entry.filename.upper().endswith((".SF", ".RSA", ".DSA")):
+                    raise ValueError("refusing to edit a signed shaded archive")
+                output.writestr(entry, old.read(entry))
+                names.add(entry.filename)
+            for name, path in replacements.items():
+                root, group = package_roots[name]
+                with zipfile.ZipFile(path) as dependency:
+                    for entry in dependency.infolist():
+                        if not (
+                            entry.filename.startswith(root)
+                            or entry.filename.startswith(
+                                f"META-INF/maven/{group}/{name}/"
+                            )
+                        ):
+                            continue
+                        if entry.filename in names:
+                            continue
+                        output.writestr(entry, dependency.read(entry))
+                        names.add(entry.filename)
+        staged.replace(target)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def harden(inputs):
@@ -75,14 +80,15 @@ def harden(inputs):
         runner = Path("/opt/actions-runner")
         node_archive = download(inputs["node_compat"], work / "node.tar.xz")
         runtime = runner / "externals/node20"
-        old = runtime.with_name("node20.original")
-        runtime.rename(old)
-        runtime.mkdir()
         with tarfile.open(node_archive) as stream:
             stream.extractall(work / "node", filter="data")
         source = next((work / "node").iterdir())
-        shutil.copytree(source, runtime, dirs_exist_ok=True)
-        shutil.rmtree(old)
+        # OverlayFS cannot rename a populated directory from a lower image layer.
+        # The verified replacement is extracted before discarding the old runtime.
+        if not (source / "bin/node").is_file():
+            raise ValueError("replacement Node runtime is incomplete")
+        shutil.rmtree(runtime)
+        shutil.copytree(source, runtime)
         for runtime in sorted((runner / "externals").glob("node*")):
             if not (runtime / "bin/node").is_file():
                 continue
