@@ -65,7 +65,11 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if ! image_exists "$base"; then tart pull "$base"; fi
+# OCI tags are mutable. Refresh them even when Tart has a cached image;
+# local names and immutable digest references retain their normal cache.
+if [[ "$base" == */* && "$base" != *@sha256:* ]] || ! image_exists "$base"; then
+	tart pull "$base"
+fi
 mkdir -p "$bundle"
 cp "$reference" "$bundle/reference.json"
 cp "$allowlist" "$bundle/accepted-missing.txt"
@@ -157,6 +161,7 @@ python3 "$root/scripts/qualify-image.py" "$bundle" "$tart_home/vms/$temporary" \
 	--image "$image" --profile "$profile" --base "$base" \
 	--source-commit "$source_revision" --reference-commit "$reference_revision" \
 	--runner-version "$version" \
+	--runner-dir "$runner_dir" \
 	--run-url "${GITHUB_SERVER_URL:+$GITHUB_SERVER_URL/${GITHUB_REPOSITORY:?}/actions/runs/${GITHUB_RUN_ID:?}}"
 # Recheck in case another process created the destination while we built.
 if image_exists "$image"; then

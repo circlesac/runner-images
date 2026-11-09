@@ -1,6 +1,15 @@
-# Runner images
+# macOS and OCI runner images
 
-Inspect and compare GitHub Actions runner images on local machines and cloud VMs. Collect hosted references, build local Apple Silicon Tart images, and compare actual capabilities on Linux and macOS. GCP/Azure Ubuntu base-image builds and releases run automatically in Actions after their OIDC identities and destinations are configured. Complete version/runtime equivalence remains outside the current qualification.
+Build and qualify macOS Tart and Linux OCI GitHub Actions runner images for Docker and Apple Container. Collect the GitHub-hosted `macos-26` reference, build local Tart images, compare the installed capabilities, and publish verified images with their evidence.
+
+## Supported scope
+
+- Images: macOS 26 ARM64 (`xcode`, `xcode-android`) and Ubuntu 24.04 ARM64 OCI (`ubuntu-24.04-android`, Docker or Apple Container).
+- Reference snapshots: the actual GitHub-hosted `macos-26` image.
+- Building: an Apple Silicon Mac using Tart, or a native ARM64 Docker host. GitHub Actions validates the evidence and publishes the release.
+- CI: macOS and Ubuntu run the Python/shell checks; Ubuntu also records snapshots and publishes macOS release evidence. The Docker image has its own native build and publication workflow.
+
+Tart rebuild reminders remain macOS-only. Docker images build in Actions and do not need a human-run rebuild issue. Cloud VM recipes are outside this repository’s scope.
 
 ## What is measured
 
@@ -13,7 +22,7 @@ Comparison fails for unexpected missing capabilities and stale allowlist entries
 
 ## Run locally
 
-Python 3.11 or newer is the only runtime dependency. Run the same collector on each machine; it needs neither cloud credentials nor root access.
+Python 3.11 or newer is the only runtime dependency. Run the same collector on each Mac; it needs neither service credentials nor root access.
 
 ```sh
 python3 scripts/inventory.py > candidate.json
@@ -25,11 +34,11 @@ Output is JSON. Comparison exits 0 when compatible, 1 for capability differences
 
 ## GitHub Actions
 
-The [Hosted reference inventories](https://github.com/circlesac/runner-images/actions/workflows/reference.yml) workflow captures standard `ubuntu-24.04` and `macos-26` images before setup actions change their toolchain. It runs daily at **09:30 KST (00:30 UTC)**, on pushes to main, on pull requests, and on manual dispatch.
+The [Hosted reference inventories](https://github.com/circlesac/runner-images/actions/workflows/reference.yml) workflow captures the standard `macos-26` image before setup actions change its toolchain. It runs daily at **09:30 KST (00:30 UTC)**, on pushes to main, on pull requests, and on manual dispatch.
 
-**Git is the durable reference:** [`snapshots/github-hosted/`](snapshots/github-hosted/) contains the current measured JSON for each image. Changed commands, caches, environment names or image versions produce a commit; identical observations produce no commit. Git history preserves previous observations and readable diffs. Observation timestamps and run counters are not inserted into snapshots, so reruns do not create artificial changes. Initial snapshots were captured by [the verified hosted run](https://github.com/circlesac/runner-images/actions/runs/42367660196).
+**Git is the durable reference:** [`snapshots/github-hosted/`](snapshots/github-hosted/) contains the current measured JSON for that image. Changed commands, caches, environment names or image versions produce a commit; identical observations produce no commit. Git history preserves previous observations and readable diffs. Observation timestamps and run counters are not inserted into snapshots, so reruns do not create artificial changes. Initial snapshots were captured by [the verified hosted run](https://github.com/circlesac/runner-images/actions/runs/42367660196).
 
-Artifacts only transfer the two matrix jobs’ results to the Git recording job. That job validates the entire matrix, updates only the snapshot directory, and commits with the workflow token. Public PRs cannot write snapshots; only trusted main runs can. Publishing is serialized, starts from current main, and never force-pushes over a concurrent change. A failed/incomplete observation preserves the previous references. Scheduled recording starts once this workflow is merged to the default branch.
+Artifacts transfer the macOS observation to the Git recording job on Ubuntu. That job validates the observation, updates only the snapshot directory, and commits with the workflow token. Public PRs cannot write snapshots; only trusted main runs can. Publishing is serialized, starts from current main, and never force-pushes over a concurrent change. A failed/incomplete observation preserves the previous references.
 
 The root composite Action collects a candidate:
 
@@ -39,19 +48,24 @@ The root composite Action collects a candidate:
     output: candidate.json
 ```
 
-Compare after downloading the matching reference artifact:
+Check out the factory reference at the same reviewed revision before comparing:
 
 ```yaml
+- uses: actions/checkout@v7
+  with:
+    repository: circlesac/runner-images
+    ref: VERIFIED_COMMIT
+    path: .runner-images
 - uses: circlesac/runner-images/compare@VERIFIED_COMMIT
   with:
-    reference: reference/inventory.json
+    reference: .runner-images/snapshots/github-hosted/macos-26.json
     candidate: candidate.json
     allowlist: accepted-missing.txt
 ```
 
-Replace `VERIFIED_COMMIT` with the reviewed code revision. Consumers fetch the public repository’s main branch, read `snapshots/github-hosted/macos-26.json` (or `ubuntu-24.04.json`), and retain that reference commit with their comparison evidence. Reading versioned references needs no Actions-artifact permission or expiring artifact URL. During initial adoption before the public PR is merged, the same verified PR commit also contains the seeded snapshots.
+Replace `VERIFIED_COMMIT` with the reviewed code revision. Consumers fetch the public repository’s main branch, read `snapshots/github-hosted/macos-26.json`, and retain that reference commit with their comparison evidence. Reading versioned references needs no Actions-artifact permission or expiring artifact URL.
 
-Candidate machines run in their owning private workflows. This repository does not accept public PR code on a private self-hosted runner and never uploads private candidate inventories. Reference collection uses standard GitHub-hosted public-repository runners; cloud VM costs and larger-runner billing are separate.
+Candidate machines run in their owning private workflows. This repository does not accept public PR code on a private self-hosted runner and never uploads private candidate inventories. Reference collection uses standard GitHub-hosted public-repository runners.
 
 ## Build a Tart image
 
@@ -74,7 +88,7 @@ Guest scripts live in [`macos/image/`](macos/image/). Reuse a pinned base digest
 
 The daily reference job records real hosted-image changes at 09:30 KST. [Reconcile image rebuild issues](.github/workflows/rebuild-issues.yml) compares the current macOS reference/build inputs with released images. It maintains **one reusable bot-owned issue per profile** (`xcode`, `xcode-android`), including a command already filled in for that profile. Copy that command into a terminal on your Apple Silicon Mac; there are no workflow inputs, image names, version numbers, tokens or follow-up release commands to enter.
 
-The command downloads the public `macos/rebuild.sh` bootstrap through your existing `gh` login. It installs missing Tart/jq/Grype/Python tools through Homebrew, prepares its own checkout under `${XDG_STATE_HOME:-~/.local/state}/runner-images/PROFILE/source`, and runs the repository's local build command. Your ordinary working tree and running fleet configuration are untouched. `gh`, an authenticated GitHub account with repository/workflow/package write access, and Homebrew are prerequisites. These are the account's existing permissions; no physical Actions runner registration or new runner group is required.
+The command downloads the public `macos/rebuild.sh` bootstrap through your existing `gh` login. It installs missing Tart/jq/Grype/Python tools through Homebrew, prepares its own checkout under `${XDG_STATE_HOME:-~/.local/state}/runner-images/circlesac/PROFILE/source`, and runs the repository's local build command. Your ordinary working tree and running fleet configuration are untouched. `gh`, an authenticated GitHub account with repository/workflow/package write access, and Homebrew are prerequisites. These are the account's existing permissions; no physical Actions runner registration or new runner group is required.
 
 The local command waits for a free VM slot, builds a uniquely named image, generates a Syft guest SBOM, checks the native toolchain and capability comparison, stops the VM and checks its bytes. Grype rejects high/critical findings in the measured SBOM. It then uploads that exact image to GHCR, reads back its immutable digest and qualification labels, commits verified evidence to main using the existing GitHub login, and starts the main-only [Release verified Tart image](.github/workflows/release-tart.yml) workflow. The terminal waits for that workflow to finish; you do not have to visit Actions or manually close the issue.
 
@@ -90,45 +104,7 @@ Git is the durable store: `qualifications/tart/PROFILE/RECEIPT_SHA256/` contains
 
 The VM itself is stored as `ghcr.io/circlesac/runner-images/macos-26-PROFILE:macos-26-PROFILE-local-BUILD_ID`. Use the immutable `@sha256:…` reference shown in the release notes to clone it with Tart. GitHub Releases contain the version, pull command and verification evidence, rather than another multi-gigabyte copy of the VM. Package visibility follows GHCR permissions and is not changed automatically; a public release page does not imply anonymous registry access. Fleet adoption remains the consumer's decision.
 
-The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. This PR implements the command and workflow; the first real local build/upload/release remains to be run after merge. Public PR checks use hosted runners and controlled external-boundary fixtures.
-
-## Automatic GCP and Azure images
-
-[Release cloud runner images](.github/workflows/release-cloud.yml) owns the entire cloud path. It resolves the current Ubuntu 24.04 x86-64 base on each provider, hashes that concrete base ID together with the versioned hosted reference, destination and cloud recipe, and skips unchanged released inputs. It runs on relevant main changes, successful trusted hosted-reference completion (including workflow-token snapshot commits), daily at **10:00 KST**, and optional manual dispatch. Cloud automatic publication is explicitly requested for this repository; the macOS path keeps its local-command/manual release contract. PRs cannot authenticate to clouds, build images or publish releases.
-
-Packer uses one shared Linux provision/verification recipe. It installs the basic C/C++/CMake, Git, Python, Node, Go, Java, Rust and Docker tools plus a checksum-verified unregistered GitHub runner. It executes native compile/runtime smoke checks and Docker daemon checks inside the provisioning VM, captures actual capabilities and a guest SBOM, downloads evidence, removes provisioning SSH authorization and temporary installers, and generalizes the image. The VM has no repository registration credentials; GCP has no default VM service account. GCP SSH ingress is restricted to the Actions builder's address on the configured dedicated network; Azure restricts temporary ingress to that address too.
-
-The cloud guest installs current official Node LTS, stable Go/Rust and Git LFS archives with verified SHA-256 checksums, plus Docker's signed upstream packages. Buildx resolves its current official security release independently of apt, verifies the GitHub release SHA-256 digest and replaces the older apt plugin, so stale plugin binaries do not remain in the image. npm is resolved independently from the registry and verified against its SHA-512 integrity, so an older npm bundled with Node does not freeze its dependencies. The runner's Node 24 npm is refreshed to the current stable npm; its Node 20 npm stays on the latest stable npm 11 release, because npm 12 requires Node 22 or later. The official runner Node binaries and runtime selection remain intact. npm trees are replaced completely so removed vulnerable dependencies cannot remain on disk. Download URLs, checksums and selected toolchain versions are included in the evidence. These versions are resolved when a new image is built. Apt downloads and disabled Snap revisions are removed before scanning; installed packages remain in scope. The checksum-verified scanner runs from a temporary build directory and is removed before image capture. The root filesystem is cataloged with Syft's `image` preset: installed packages and binaries remain in scope, while source-only dependency declarations and bundled upstream CI workflows are not presented as installed software. Grype consumes the native Syft JSON with distro/source-package metadata, file locations and Go function symbols. SPDX remains available for distribution and SBOM attestations. High/critical findings still block publication; a richer SBOM is not a security exception.
-
-GCP stores a new uniquely named Compute Engine image. Azure stores a CalVer image version in the configured Compute Gallery. Independent cloud read-back checks readiness, build ownership and source/recipe tags; the Packer manifest must identify the expected artifact. Grype scanning and signed image-metadata/SBOM attestations precede GitHub Release publication. The release binds the provider's concrete image ID, source/base revisions, input fingerprint and checksummed evidence; `cloud-gcp@YY.MM.MICRO` and `cloud-azure@YY.MM.MICRO` have separate oneup version sequences. Signed subjects hash the image metadata, not an unmeasured cloud disk's bytes.
-
-This initial cloud profile is **provisioning-smoke qualified**, not full GitHub-hosted parity or a fresh-image boot/real Actions-job test. The hosted comparison report is attached even when it reports missing capabilities; its differences are informational for this base profile. Release notes explicitly state those boundaries. Native smoke, evidence integrity, cloud identity/readiness, vulnerability gates and release asset checks are mandatory. Fresh-image boot and real Actions-job testing are a separate next stage.
-
-There are **no cloud rebuild issues**. Provider builds are serialized independently. Identical successful runs do not create another VM or release. A published release whose final Git commit failed is recovered from its checksummed image receipt and cloud read-back. Successful Git records live under `qualifications/cloud/PROVIDER/INPUT_SHA256/`; artifacts retain provisioning/release/cleanup diagnostics. Cloud changes do not request a macOS rebuild.
-
-Each job always attempts to remove its owned temporary VM/network/disk resources and any image that never reached a published release. Packer cleanup is reinforced with explicit provider cleanup. Azure uses a dedicated precreated build resource group, separate from the gallery group, so the identity need not create arbitrary subscription resource groups. Cleanup filters the exact build ownership tag; it refuses foreign resources and reports incomplete deletion as a failed job. Images referenced by a published release are preserved even if Git recording fails. Later scheduled no-op runs also retry temporary cleanup for the released build. Images from previous releases are retained; retaining those images has storage cost. As with any runner-local finalizer, a lost runner can prevent its cleanup step from executing; diagnostics and resource ownership tags identify that recovery work.
-
-### Cloud setup
-
-The cloud destinations and trust identities are deployment configuration, never secrets baked into source or images. GitHub authenticates with OIDC scoped to immutable repository/owner IDs, `refs/heads/main`, and the reusable `cloud-image.yml` job. This avoids reliance on the mutable/default OIDC subject format. Use a dedicated GCP network without a broad preexisting SSH allow rule. Configure these repository variables before merging/enabling automatic cloud builds:
-
-| Provider | Repository variables |
-| --- | --- |
-| GCP authentication | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` |
-| GCP destination | `GCP_PROJECT`, `GCP_ZONE`, `GCP_NETWORK`, `GCP_MACHINE_TYPE` |
-| Azure authentication | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` |
-| Azure destination | `AZURE_LOCATION`, `AZURE_VM_SIZE`, `AZURE_BUILD_RESOURCE_GROUP`, `AZURE_RESOURCE_GROUP`, `AZURE_GALLERY`, `AZURE_IMAGE_DEFINITION` |
-
-Enable Compute Engine on the chosen GCP project and grant the build identity the instance/disk/image and dedicated-network firewall operations used by the recipe. Do not grant a VM service identity. On Azure, precreate the build/gallery groups and a generalized Linux x64 Generation 2 Ubuntu 24.04 gallery definition; scope the build identity to those groups plus required marketplace/location reads. Grant GitHub OIDC federation only for this main workflow, not arbitrary public branches. No long-lived cloud key or GitHub Secret is needed. `cloud/configure-auth.py` provisions dedicated identities from a private configuration file using an existing administrator login; it grants only the image/VM operation role on GCP and scoped build/image-definition roles plus catalog reads on Azure. It never creates cloud access keys or client passwords. Destination identities are configured outside source through repository variables; only a live workflow run establishes cloud-build evidence. Release receipts omit runtime authentication/network configuration.
-
-To validate recipes locally without credentials/resources:
-
-```sh
-python3 scripts/check-cloud.py
-python3 scripts/check-sbom.py /path/to/syft
-```
-
-This uses Packer 1.16.2 with Google Compute 1.2.9 and Azure 2.6.5 plugins. `packer init` installs the declared compatible plugin versions. The public PR gate validates both real plugin schemas using only synthetic destination values in `cloud/validation.pkrvars.json`. The same Python `scripts/cloud-image.py` phases run in Actions or locally with explicit destination variables and an authenticated cloud CLI; authenticated live execution incurs cloud costs.
+The SBOM describes software discoverable by Syft in the fresh guest, excluding protected/system, volatile and user Library trees. Native product tests, complete hosted-image equivalence, proprietary installer licensing and public package-visibility changes are not established by a capability comparison or SBOM. A complete Tart build/upload/release/adoption run requires separate integration verification; fixture tests do not establish that end-to-end result. Public PR checks use hosted runners and controlled external-boundary fixtures.
 
 ## Development and verification
 
@@ -142,6 +118,8 @@ shfmt -w scripts macos
 
 Install ShellCheck and shfmt with your system package manager. The gate runs formatting, Python/shell lint, strict Python types and behavioral tests with branch coverage (minimum 80%). Tests exercise real executable files/symlinks, cache completion, secret-value omission, incompatible platforms, invalid snapshots and stale allowlists; Git recording is exercised against a real local bare remote, including repeat no-op and dirty-worktree refusal. Tart lifecycle tests cover successful publication, provisioning/verification/rename failures, cleanup and preservation of unrelated images through a controlled command boundary. A local real-VM build is a separate integration check, not established by those fixtures.
 
+The `mac-sbom` job in [Check](.github/workflows/check.yml) runs `scripts/check-sbom.py` against a real Syft binary so guest exclusion rules stay aligned with the collector script.
+
 | Tooling | Version at selection (2026-11-07) | Registry release | Reason |
 | --- | --- | --- | --- |
 | Ruff | 0.17.4 | 2026-11-05 | Native formatter and linter; selected over formatter-only Black 26.10.1 (2026-10-10) |
@@ -149,8 +127,32 @@ Install ShellCheck and shfmt with your system package manager. The gate runs for
 | Pyright | 1.1.414 | 2026-09-10 | Strict typed collection/comparison boundary |
 | shfmt / ShellCheck | 3.14.1 / 0.11.0 locally | Distribution packages in CI | Maintained native shell formatter/linter; avoids an interpreter-based formatter or bashate lint pipeline |
 
-`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. Fresh-image cloud boot/Actions validation, Windows, version-level probes and official upstream test integration remain future work.
+`setup-uv` uses its current full release ref because upstream does not publish a `v10` alias. Development dependencies use compatible ranges and `uv.lock`; runtime collection/comparison uses only the standard library. There is no installed CLI/package release or fleet deployment; consume a reviewed Git revision. A complete build/upload/release/adoption run, version-level probes and official upstream test integration require separate integration verification.
 
 ## Related projects
 
-[actions/runner-images](https://github.com/actions/runner-images) is the official upstream source for toolsets, provisioning, software reports and runtime tests. [runner-drift](https://github.com/Booyaka101/runner-drift) monitors selected tool-version changes and migrations. [Mactions](https://github.com/Kyter-com/Mactions) manages ephemeral runners and documents hosted differences. This repository compares observations from both machines rather than treating a published manifest as proof of a candidate’s contents.
+[actions/runner-images](https://github.com/actions/runner-images) is the official upstream source for toolsets, provisioning, software reports and runtime tests. [runner-drift](https://github.com/Booyaka101/runner-drift) monitors selected tool-version changes and migrations. [Mactions](https://github.com/Kyter-com/Mactions) manages ephemeral runners and documents hosted differences. This repository compares observations from actual machines rather than treating a published manifest as proof of a candidate’s contents.
+
+### Local consumers after macOS publication
+
+The issue command can notify a host-local image consumer after it reads a published release receipt from `origin/main`. Register a JSON command array at `${XDG_CONFIG_HOME:-~/.config}/runner-images/circlesac/<profile>/after-release.json`, for example `["/absolute/path/to/example-consumer"]`. The command receives the absolute qualification-bundle directory as its last argument. Arguments are passed directly, without a shell. No consumer configuration or credentials are committed here.
+
+This callback also runs for an already published matching image, so registering later or repeating a failed adoption does not require another build. A callback failure fails the local command and leaves its journal unfinished. The public rebuild issue tracks image publication and closes after verified release publication; private consumer adoption is recorded by that consumer. Without a registered callback the command only publishes the image and never changes a fleet.
+
+## Linux OCI images: Docker and Apple Container
+
+The `ubuntu-24.04-android` image runs natively on ARM64 Ubuntu 24.04. It includes the official Actions runner, the latest Node.js LTS resolved from its checksum manifest, Java 17, Android 36, NDK 27.1.12297006 and CMake 3.22.1. Android command-line tools resolve from Google's current repository metadata and their archive checksum. Java/Android package versions preserve the declared build-tool contract; they do not imply complete GitHub-hosted Linux image parity.
+
+From a clean committed checkout on a native ARM64 Docker host:
+
+```sh
+bash docker/build-image.sh example-runner:local
+```
+
+The builder archives the exact Git revision, resolves immutable base/input identities, builds a new candidate without replacing an existing image, runs native checks and captures its Linux inventory. Passing evidence is retained under an independent `artifacts/docker/build.*/` bundle. The Linux product uses these toolchain checks and measured inventory; the hosted reference snapshot currently belongs to macOS only.
+
+[Build Docker runner image](.github/workflows/build-docker.yml) runs this same build on native hosted ARM64 runners for matching pull requests and main pushes. It installs x86 emulation for Google's Linux Android executables. Docker images do not create human-run rebuild issues. [Release verified Docker image](.github/workflows/release-docker.yml) is a main-only manual publication gate: it rebuilds, generates the SBOM, rejects High/Critical findings, pushes the qualified image, verifies its immutable digest, signs build/SBOM evidence and publishes checksummed release assets. CalVer tags use `docker-ubuntu-24.04-android@YY.MM.MICRO`; verified receipts are retained in `qualifications/docker/`. Registry visibility remains an independent operator setting.
+
+Docker execution uses runscaler's supported Docker provider and `/home/runner/run.sh`. Mount its named workspace volume at the Docker daemon's actual absolute mountpoint and pass that path as `SHARED_DIR`. Each JIT runner copies its distribution into a unique directory so sibling job containers can see both checkout files and Actions runtime tools. Successful unmounted attempts are removed; failed or still-mounted attempts are preserved. App keys stay with the controller; only the JIT configuration reaches the job container.
+
+Apple Container uses the same OCI image with `/usr/local/bin/apple-runner`, Rosetta, root inside the isolated Linux VM, all guest capabilities and cleared guest read-only/masked paths. That entrypoint starts a private Docker daemon **inside the job VM**, then runs the JIT listener as `runner`. This supports Docker/container jobs without sharing a Mac Docker daemon. Normal completion waits for the private daemon to stop before the VM is deleted. The standard runscaler release has no Apple Container provider; the consumer must provide a separately tested adapter. Runtime provisioning, controller authentication, readiness monitoring and fleet cutover belong to the consuming repository.

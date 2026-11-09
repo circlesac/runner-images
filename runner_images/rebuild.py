@@ -12,7 +12,7 @@ from runner_images.qualification import read_object
 def input_id(root: Path, profile: str) -> str:
     if profile not in ("xcode", "xcode-android"):
         raise ValueError("unknown profile")
-    # Hash build inputs, excluding generated evidence and Linux observations.
+    # Hash build inputs, excluding generated evidence.
     names = [
         ".github/workflows/release-tart.yml",
         "snapshots/github-hosted/macos-26.json",
@@ -25,10 +25,7 @@ def input_id(root: Path, profile: str) -> str:
         ("scripts", "*.sh"),
     ):
         names.extend(
-            str(p.relative_to(root))
-            for p in (root / directory).rglob(pattern)
-            if p.name
-            not in ("cloud.py", "cloud-image.py", "commit-cloud.sh", "check-cloud.py")
+            str(p.relative_to(root)) for p in (root / directory).rglob(pattern)
         )
     result = hashlib.sha256(profile.encode())
     for name in sorted(set(names)):
@@ -107,7 +104,11 @@ def reconcile(root: Path) -> None:
             "uploads it, records evidence and waits for GitHub to publish the "
             "release and close this issue. Existing gh authentication is reused; "
             "required Homebrew tools are installed automatically. "
-            "Run the same command again after an interruption to resume.\n\n"
+            "Run the same command again after an interruption to resume. "
+            "If this Mac has a registered local consumer, it is called after "
+            "publication and on replay; its failure fails the command. "
+            "This public issue tracks publication, while consumer adoption is "
+            "recorded locally.\n\n"
             "Failures keep this issue open. A newer reference/recipe remains "
             "outstanding even if an older build finishes.\n"
         )

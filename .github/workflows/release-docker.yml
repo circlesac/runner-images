@@ -1,0 +1,79 @@
+name: Release verified Docker image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: docker-image-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: amd64
+      - name: Install official checksum-verified scanners
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash docker/install-scanners.sh "$RUNNER_TEMP/scanners"
+          echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+      - name: Build and qualify the native image
+        id: build
+        run: bash docker/build-image.sh runner-candidate:release
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Verify security and immutable registry read-back
+        id: publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.build.outputs.bundle }}
+        run: python3 docker/release-image.py prepare "$BUNDLE" --image runner-candidate:release
+      - uses: actions/attest@v4.2.2
+        if: steps.publication.outputs.already_released != 'true'
+        id: provenance
+        with:
+          subject-name: ${{ steps.publication.outputs.subject }}
+          subject-digest: ${{ steps.publication.outputs.digest }}
+          predicate-type: https://circles.ac/runner-images/docker-build/v1
+          predicate-path: ${{ steps.build.outputs.bundle }}/qualification.json
+      - uses: actions/attest-sbom@v4.1.0
+        if: steps.publication.outputs.already_released != 'true'
+        id: sbom
+        with:
+          subject-name: ${{ steps.publication.outputs.subject }}
+          subject-digest: ${{ steps.publication.outputs.digest }}
+          sbom-path: ${{ steps.build.outputs.bundle }}/sbom.spdx.json
+      - name: Publish verified assets and append the Git receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.build.outputs.bundle }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+          ALREADY_RELEASED: ${{ steps.publication.outputs.already_released }}
+        run: |
+          if [[ "$ALREADY_RELEASED" != true ]]; then
+            cp "$PROVENANCE_BUNDLE" "$BUNDLE/provenance.sigstore.json"
+            cp "$SBOM_BUNDLE" "$BUNDLE/sbom.sigstore.json"
+          fi
+          python3 docker/release-image.py publish "$BUNDLE"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: docker-release-evidence
+          path: artifacts/docker/
+          retention-days: 30

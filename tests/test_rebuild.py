@@ -137,13 +137,10 @@ def test_already_uploaded_inputs_do_not_create_issue(root, api):
     assert len(state) == 1
 
 
-def test_inputs_track_recipe_not_generated_records_or_linux(root):
+def test_inputs_track_recipe_not_generated_records(root):
     before = rebuild.input_id(root, "xcode")
     publication(root, "xcode")
     (root / "README.md").write_text("documentation")
-    (root / "runner_images/cloud.py").write_text("cloud-only change")
-    (root / "scripts/cloud-image.py").write_text("cloud-only entry point")
-    (root / "snapshots/github-hosted/ubuntu-24.04.json").write_text("Linux")
     assert rebuild.input_id(root, "xcode") == before
     (root / "scripts/commit-qualification.sh").write_text("changed uploader")
     assert rebuild.input_id(root, "xcode") != before

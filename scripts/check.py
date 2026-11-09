@@ -8,12 +8,12 @@ for command in (
     ["ruff", "format", "--check", "."],
     ["ruff", "check", "."],
     ["pyright"],
-    ["shfmt", "-d", "scripts", "macos", "cloud"],
+    ["shfmt", "-d", "scripts", "macos", "docker"],
     [
         "shellcheck",
         *map(str, sorted(Path("scripts").glob("*.sh"))),
         *map(str, sorted(Path("macos").rglob("*.sh"))),
-        *map(str, sorted(Path("cloud").rglob("*.sh"))),
+        *map(str, sorted(Path("docker").glob("*.sh"))),
     ],
 ):
     result = subprocess.run(command, check=False)
