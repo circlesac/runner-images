@@ -76,6 +76,14 @@ def candidate(tmp_path, monkeypatch):
         if args[0] == "npx":
             return "26.11.0"
         if args[:3] == ("gh", "attestation", "verify"):
+            # actions/attest-sbom declares SPDX 2.3 with this versioned URI.
+            # Match the real producer contract, including rejected type filters.
+            if (
+                str(args[args.index("--bundle") + 1]).endswith("sbom.sigstore.json")
+                and args[args.index("--predicate-type") + 1]
+                != "https://spdx.dev/Document/v2.3"
+            ):
+                raise subprocess.CalledProcessError(1, args)
             if state["signature_failure"]:
                 raise subprocess.CalledProcessError(1, args)
             predicate = (
