@@ -10,6 +10,7 @@ def fetch(url):
         return response.read()
 
 
+npm = json.loads(fetch("https://registry.npmjs.org/npm/latest"))
 versions = json.loads(fetch("https://nodejs.org/dist/index.json"))
 node = next(v["version"] for v in versions if v["lts"])
 filename = f"node-{node}-linux-arm64.tar.xz"
@@ -28,6 +29,7 @@ print(
     json.dumps(
         {
             "node_version": node,
+            "npm_version": npm["version"],
             "node_sha256": node_sha,
             "android_url": "https://dl.google.com/android/repository/"
             + archive.findtext("complete/url"),

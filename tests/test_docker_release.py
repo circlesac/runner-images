@@ -254,3 +254,19 @@ def test_durable_receipt_uses_real_git_push_and_repeat_is_noop(
     release.publish(bundle)
     assert git("rev-parse", "HEAD") == first
     assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == first
+
+
+def test_scanning_preserves_go_symbols_without_disabling_high_severity_gate(candidate):
+    bundle, state = candidate
+    release.prepare("example:local", bundle)
+    scan = next(call for call in state["calls"] if call[:2] == ("syft", "scan"))
+    assert scan[-2:] == ("-o", "syft-json")
+    assert "--config" in scan
+    assert next(call for call in state["calls"] if call[:2] == ("syft", "convert"))
+    grype = next(call for call in state["calls"] if call[0] == "grype")
+    assert grype[1] == f"sbom:{bundle / 'sbom.syft.json'}"
+    assert grype[-2:] == ("--fail-on", "high")
+    assert (
+        "capture-symbols: all"
+        in Path(release.__file__).with_name("syft.yaml").read_text()
+    )
