@@ -1,0 +1,23 @@
+{
+  "status": "released",
+  "schema_version": 1,
+  "qualification_sha256": "8d0dcea06e7d84a10e19156da3340b60302577813fe466f0ea7170f800253e08",
+  "reference": "ghcr.io/circlesac/runner-images/docker-ubuntu-24.04-android@sha256:d9d4e486c643dc7f94b9ad774f0f7c5123904a37382ccdf9b9a2bfa899fd7961",
+  "source_commit": "0852f1ed4fc85c94b357c644603454514e47dd96",
+  "tag": "docker-ubuntu-24.04-android@26.11.0",
+  "url": "https://github.com/circlesac/runner-images/releases/tag/docker-ubuntu-24.04-android%4026.11.0",
+  "assets": {
+    "qualification.json": "8d0dcea06e7d84a10e19156da3340b60302577813fe466f0ea7170f800253e08",
+    "inputs.json": "13cdf0e7aecd6c1db7eef7253678d4e4155bcd7dcad3b95f4fe28d5ab6d6b502",
+    "inventory.json": "7dc19c6a9f422317ffdf0deed739945e346ce6de3fecc2b0ea15e795f1d7eebb",
+    "image.json": "779b64b153b5269cd97eae360894942e85292e0a3b603b2bbca660ee690e4440",
+    "toolchain-check.txt": "20ba2dd01bb91c327e5fcbc34606d3ae73ab6b26ffbca4ea38b66beb15a43678",
+    "publication.json": "7fbc97c6c885509af1de7b33e988ae5a0cf26472e8f69b6b686ea23dd8dda623",
+    "sbom.spdx.json": "45eeac1100cbd6c51399920365f9e1f5ccf7818f1e768fd83660b14bae81f9b8",
+    "sbom.attestation.spdx.json": "4632a3944d00d2af99097398bddfd5949a294ae46f191fff465997e3b8c6f9e9",
+    "sbom.syft.json": "f6d6afb609143057994bb90467ada88e4456e5898730be14adadb9aad0480291",
+    "vulnerabilities.json": "62a7cbbe73b9a9fad816f508ca13335842fea92314196695adfa793b4fba78fa",
+    "provenance.sigstore.json": "5d96972792349e47c5c017eb988fbe7dd2b93e5bcf63642bdb4151269035aa44",
+    "sbom.sigstore.json": "ee0407feae4a3ae075420dfd9b96e8ffa14e7026fee82dc0bd5dd4c780dbd70a"
+  }
+}
