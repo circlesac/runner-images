@@ -299,7 +299,7 @@ def publish(bundle):
         ),
         (
             "sbom.sigstore.json",
-            "https://spdx.dev/Document",
+            "https://spdx.dev/Document/v2.3",
             package_sbom(bundle / "sbom.spdx.json"),
         ),
     ):
