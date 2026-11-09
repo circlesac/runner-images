@@ -4,6 +4,8 @@ import json
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
+from security_inputs import resolve
+
 
 def fetch(url):
     with urlopen(url, timeout=90) as response:
@@ -30,6 +32,9 @@ print(
         {
             "node_version": node,
             "npm_version": npm["version"],
+            "security_inputs": json.dumps(
+                resolve(versions, npm["version"]), sort_keys=True
+            ),
             "node_sha256": node_sha,
             "android_url": "https://dl.google.com/android/repository/"
             + archive.findtext("complete/url"),

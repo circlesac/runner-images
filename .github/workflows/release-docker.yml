@@ -32,6 +32,8 @@ jobs:
           echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
       - name: Build and qualify the native image
         id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash docker/build-image.sh runner-candidate:release
       - name: Authenticate to GHCR
         env:

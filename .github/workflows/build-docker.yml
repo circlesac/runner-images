@@ -18,6 +18,8 @@ jobs:
         with:
           platforms: amd64
       - name: Build and qualify the actual native image
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash docker/build-image.sh runner-candidate:ci
       - uses: actions/upload-artifact@v7
         if: always()

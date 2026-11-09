@@ -1,7 +1,13 @@
 ARG RUNNER_BASE=ghcr.io/actions/actions-runner:latest
+FROM golang:1.27 AS patched-tools
+ARG SECURITY_INPUTS
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+COPY docker/security_inputs.py docker/build-security-tools.py /build/
+RUN python3 /build/build-security-tools.py "$SECURITY_INPUTS" /out
 FROM ${RUNNER_BASE}
 USER root
 ARG TARGETARCH
+ARG SECURITY_INPUTS
 ARG NODE_VERSION
 ARG NPM_VERSION
 ARG NODE_SHA256
@@ -48,6 +54,9 @@ RUN npm install --global "npm@${NPM_VERSION}" && npm cache clean --force
 # runscaler starts /home/runner/run.sh. Each real runner distribution and its
 # workspace are copied into a unique daemon-visible shared-volume directory.
 RUN mv /home/runner /opt/actions-runner && mkdir /home/runner && chown runner:docker /home/runner
+COPY --from=patched-tools /out/ /opt/runner-security-tools/
+COPY docker/security_inputs.py docker/harden.py /opt/runner-hardening/
+RUN python3 /opt/runner-hardening/harden.py "$SECURITY_INPUTS"
 COPY --chmod=755 docker/runner.sh /home/runner/run.sh
 COPY --chmod=755 docker/apple-runner.sh /usr/local/bin/apple-runner
 COPY --chmod=755 docker/verify-toolchain.sh /usr/local/bin/verify-runner-toolchain
