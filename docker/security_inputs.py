@@ -4,8 +4,13 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -33,7 +38,7 @@ def github(repo, path):
 
 def asset(value):
     digest = value.get("digest", "")
-    if not digest.startswith("sha256:"):
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
         raise ValueError("GitHub asset is missing its SHA256 digest")
     return {
         "url": value["browser_download_url"],
@@ -119,3 +124,45 @@ def resolve(node_versions, npm_version):
             ]
         },
     }
+
+
+def cache_release_asset(item, destination):
+    """Authenticate on the host; put only checksum-verified bytes in the build."""
+    url = urlsplit(item["url"])
+    parts = url.path.split("/")
+    if (
+        url.netloc != "github.com"
+        or len(parts) != 7
+        or parts[3:5] != ["releases", "download"]
+    ):
+        raise ValueError("expected an official GitHub release asset")
+    filename = unquote(parts[6])
+    if Path(filename).name != filename:
+        raise ValueError("invalid release asset filename")
+    with tempfile.TemporaryDirectory(prefix="runner-release-asset-") as temporary:
+        subprocess.run(
+            [
+                "gh",
+                "release",
+                "download",
+                unquote(parts[5]),
+                "--repo",
+                "/".join(parts[1:3]),
+                "--pattern",
+                filename,
+                "--dir",
+                temporary,
+            ],
+            check=True,
+        )
+        data = (Path(temporary) / filename).read_bytes()
+        if hashlib.sha256(data).hexdigest() != item["sha256"]:
+            raise ValueError("release asset checksum mismatch")
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / item["sha256"]).write_bytes(data)
+
+
+if __name__ == "__main__":
+    inputs = json.loads(Path(sys.argv[1]).read_text())
+    security = json.loads(inputs["security_inputs"])
+    cache_release_asset(security["python"], Path(sys.argv[2]))

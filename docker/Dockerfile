@@ -56,7 +56,8 @@ RUN npm install --global "npm@${NPM_VERSION}" && npm cache clean --force
 RUN mv /home/runner /opt/actions-runner && mkdir /home/runner && chown runner:docker /home/runner
 COPY --from=patched-tools /out/ /opt/runner-security-tools/
 COPY docker/security_inputs.py docker/harden.py /opt/runner-hardening/
-RUN python3 /opt/runner-hardening/harden.py "$SECURITY_INPUTS"
+RUN --mount=type=bind,source=docker/security-assets,target=/opt/runner-security-assets \
+    python3 /opt/runner-hardening/harden.py "$SECURITY_INPUTS"
 COPY --chmod=755 docker/runner.sh /home/runner/run.sh
 COPY --chmod=755 docker/apple-runner.sh /usr/local/bin/apple-runner
 COPY --chmod=755 docker/verify-toolchain.sh /usr/local/bin/verify-runner-toolchain
