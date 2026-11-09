@@ -81,7 +81,7 @@ def candidate(tmp_path, monkeypatch):
             predicate = (
                 receipt
                 if "https://circles.ac/runner-images/docker-build/v1" in args
-                else json.loads((bundle / "sbom.spdx.json").read_text())
+                else release.package_sbom(bundle / "sbom.spdx.json")
             )
             return json.dumps(
                 [{"verificationResult": {"statement": {"predicate": predicate}}}]
@@ -92,7 +92,19 @@ def candidate(tmp_path, monkeypatch):
         args = tuple(map(str, args))
         state["calls"].append(args)
         if args[0] in ("syft", "grype"):
-            kwargs["stdout"].write("{}\n")
+            kwargs["stdout"].write(
+                json.dumps(
+                    {
+                        "spdxVersion": "SPDX-2.3",
+                        "SPDXID": "SPDXRef-DOCUMENT",
+                        "documentNamespace": "https://example.com/sbom",
+                        "packages": [],
+                        "files": [],
+                        "relationships": [],
+                    }
+                )
+                + "\n"
+            )
             if args[0] == "grype" and state["scan_failure"]:
                 raise subprocess.CalledProcessError(2, args)
         elif args[:3] == ("gh", "release", "create"):
@@ -270,3 +282,86 @@ def test_scanning_preserves_go_symbols_without_disabling_high_severity_gate(cand
         "capture-symbols: all"
         in Path(release.__file__).with_name("syft.yaml").read_text()
     )
+
+
+def test_attestable_sbom_preserves_packages_and_binds_complete_file_inventory(tmp_path):
+    full = tmp_path / "sbom.spdx.json"
+    package = {
+        "SPDXID": "SPDXRef-package",
+        "name": "example",
+        "versionInfo": "1.2.3",
+        "filesAnalyzed": True,
+        "hasFiles": ["SPDXRef-file"],
+        "packageVerificationCode": {"packageVerificationCodeValue": "abc"},
+        "checksums": [{"algorithm": "SHA256", "checksumValue": "def"}],
+    }
+    full.write_text(
+        json.dumps(
+            {
+                "SPDXID": "SPDXRef-DOCUMENT",
+                "documentNamespace": "https://example.com/full",
+                "packages": [package],
+                "files": [{"SPDXID": "SPDXRef-file", "fileName": "example.bin"}],
+                "relationships": [
+                    {
+                        "spdxElementId": "SPDXRef-DOCUMENT",
+                        "relationshipType": "DESCRIBES",
+                        "relatedSpdxElement": "SPDXRef-package",
+                    },
+                    {
+                        "spdxElementId": "SPDXRef-package",
+                        "relationshipType": "CONTAINS",
+                        "relatedSpdxElement": "SPDXRef-file",
+                    },
+                ],
+            }
+        )
+    )
+    original = full.read_bytes()
+    release.write_attestation_sbom(tmp_path)
+    signed = json.loads((tmp_path / "sbom.attestation.spdx.json").read_text())
+    assert full.read_bytes() == original
+    assert len(signed["packages"]) == 1
+    assert signed["packages"][0]["versionInfo"] == "1.2.3"
+    assert signed["packages"][0]["checksums"] == package["checksums"]
+    assert signed["packages"][0]["filesAnalyzed"] is False
+    assert "hasFiles" not in signed["packages"][0]
+    assert "files" not in signed
+    assert len(signed["relationships"]) == 1
+    reference = signed["externalDocumentRefs"][-1]
+    assert reference["checksum"] == {
+        "algorithm": "SHA256",
+        "checksumValue": release.file_hash(full),
+    }
+    assert reference["spdxDocument"] == "https://example.com/full"
+
+
+def test_full_sbom_tampering_fails_before_signed_release_publication(candidate):
+    bundle, state = candidate
+    release.prepare("example:local", bundle)
+    sign(bundle)
+    full = bundle / "sbom.spdx.json"
+    document = json.loads(full.read_text())
+    document["files"].append({"SPDXID": "SPDXRef-injected", "fileName": "changed"})
+    full.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="attestable SBOM"):
+        release.publish(bundle)
+    assert state["release"]["draft"] is True
+    assert state["assets"] == {}
+
+
+def test_oversized_package_inventory_fails_before_attestation(tmp_path):
+    full = tmp_path / "sbom.spdx.json"
+    full.write_text(
+        json.dumps(
+            {
+                "documentNamespace": "https://example.com/full",
+                "packages": [
+                    {"SPDXID": "SPDXRef-package", "comment": "x" * (16 * 1024 * 1024)}
+                ],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="service limit"):
+        release.write_attestation_sbom(tmp_path)
+    assert not (tmp_path / "sbom.attestation.spdx.json").exists()

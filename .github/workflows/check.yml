@@ -38,9 +38,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: anchore/sbom-action/download-syft@v0
-        id: syft
+      - name: Install official checksum-verified scanners
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash docker/install-scanners.sh "$RUNNER_TEMP/scanners"
       - name: Check guest exclusions with the actual SBOM collector
         env:
-          SYFT_BIN: ${{ steps.syft.outputs.cmd }}
+          SYFT_BIN: ${{ runner.temp }}/scanners/syft
         run: python3 scripts/check-sbom.py "$SYFT_BIN"

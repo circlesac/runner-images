@@ -16,6 +16,7 @@ context=$(mktemp -d)
 trap 'rm -rf "$context"' EXIT
 git archive "$source_commit" | tar -x -C "$context"
 python3 "$context/docker/resolve-inputs.py" >"$bundle/inputs.json"
+python3 "$context/docker/security_inputs.py" "$bundle/inputs.json" "$context/docker/security-assets"
 docker pull --platform linux/arm64 ghcr.io/actions/actions-runner:latest
 base=$(docker image inspect ghcr.io/actions/actions-runner:latest --format '{{index .RepoDigests 0}}')
 args=()

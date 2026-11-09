@@ -171,3 +171,64 @@ def test_sdk_replacement_keeps_signed_bytes_and_updates_consumer_classpath(tmp_p
         assert str(new.relative_to(android)).encode() in output.read(
             "META-INF/MANIFEST.MF"
         )
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_host_asset_prefetch_checks_release_bytes_before_staging(
+    tmp_path, monkeypatch, corrupt
+):
+    import hashlib
+
+    import security_inputs
+
+    expected = b"verified release bytes"
+    digest = hashlib.sha256(expected).hexdigest()
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        directory = Path(command[command.index("--dir") + 1])
+        (directory / "tool.tar.gz").write_bytes(b"corrupt" if corrupt else expected)
+
+    monkeypatch.setattr(security_inputs.subprocess, "run", run)
+    item = {
+        "url": "https://github.com/example-org/example-tools/releases/download/v1.2.3/tool.tar.gz",
+        "sha256": digest,
+    }
+    target = tmp_path / "staged"
+    if corrupt:
+        with pytest.raises(ValueError, match="checksum"):
+            security_inputs.cache_release_asset(item, target)
+        assert not target.exists()
+    else:
+        security_inputs.cache_release_asset(item, target)
+        assert (target / digest).read_bytes() == expected
+    assert calls[0][:4] == ["gh", "release", "download", "v1.2.3"]
+    assert calls[0][calls[0].index("--repo") + 1] == "example-org/example-tools"
+
+
+def test_cached_asset_is_verified_without_an_image_build_credential(
+    tmp_path, monkeypatch
+):
+    import hashlib
+
+    data = b"cached release"
+    digest = hashlib.sha256(data).hexdigest()
+    cache = tmp_path / digest
+    cache.write_bytes(data)
+    monkeypatch.setattr(hardening, "Path", lambda _: tmp_path)
+    monkeypatch.setattr(
+        hardening,
+        "fetch",
+        lambda _: pytest.fail(
+            "cached release must not download inside the image build"
+        ),
+    )
+    target = tmp_path / "extracted"
+    item = {"url": "https://example.com/tool", "sha256": digest}
+    hardening.download(item, target)
+    assert target.read_bytes() == data
+    cache.write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="checksum"):
+        hardening.download(item, target)
+    assert target.read_bytes() == data

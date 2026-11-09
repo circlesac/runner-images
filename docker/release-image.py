@@ -35,6 +35,45 @@ def checked_receipt(bundle):
     return receipt
 
 
+def package_sbom(full):
+    """Sign every package plus a checksum binding the complete file-level SBOM."""
+    document = json.loads(full.read_text())
+    source_namespace = document["documentNamespace"]
+    removed = {
+        item["SPDXID"]
+        for kind in ("files", "snippets")
+        for item in document.pop(kind, [])
+    }
+    for package in document["packages"]:
+        package["filesAnalyzed"] = False
+        package.pop("hasFiles", None)
+        package.pop("licenseInfoFromFiles", None)
+        package.pop("packageVerificationCode", None)
+    document["relationships"] = [
+        relationship
+        for relationship in document.get("relationships", [])
+        if relationship["spdxElementId"] not in removed
+        and relationship["relatedSpdxElement"] not in removed
+    ]
+    document["documentNamespace"] = source_namespace + "/package-attestation"
+    document.setdefault("externalDocumentRefs", []).append(
+        {
+            "externalDocumentId": "DocumentRef-Full-SBOM",
+            "spdxDocument": source_namespace,
+            "checksum": {"algorithm": "SHA256", "checksumValue": file_hash(full)},
+        }
+    )
+    return document
+
+
+def write_attestation_sbom(bundle):
+    document = package_sbom(bundle / "sbom.spdx.json")
+    data = json.dumps(document, separators=(",", ":")) + "\n"
+    if len(data.encode()) > 16 * 1024 * 1024:
+        raise ValueError("package SBOM exceeds the attestation service limit")
+    (bundle / "sbom.attestation.spdx.json").write_text(data)
+
+
 def existing(identity):
     pages = json.loads(
         command(
@@ -81,6 +120,7 @@ def prepare(image, bundle):
             "toolchain-check.txt",
             "publication.json",
             "sbom.spdx.json",
+            "sbom.attestation.spdx.json",
             "sbom.syft.json",
             "vulnerabilities.json",
             "provenance.sigstore.json",
@@ -140,6 +180,7 @@ def prepare(image, bundle):
             check=True,
             timeout=300,
         )
+    write_attestation_sbom(bundle)
     with (bundle / "vulnerabilities.json").open("w") as output:
         subprocess.run(
             [
@@ -238,6 +279,7 @@ def publish(bundle):
         "provenance.sigstore.json",
         "sbom.sigstore.json",
         "sbom.spdx.json",
+        "sbom.attestation.spdx.json",
         "sbom.syft.json",
         "vulnerabilities.json",
     ):
@@ -245,6 +287,10 @@ def publish(bundle):
             raise ValueError("signed security evidence is incomplete")
     if publication["source_commit"] != receipt["source_commit"]:
         raise ValueError("publication source changed")
+    if json.loads((bundle / "sbom.attestation.spdx.json").read_text()) != package_sbom(
+        bundle / "sbom.spdx.json"
+    ):
+        raise ValueError("attestable SBOM differs from full security evidence")
     for name, predicate_type, expected in (
         (
             "provenance.sigstore.json",
@@ -254,7 +300,7 @@ def publish(bundle):
         (
             "sbom.sigstore.json",
             "https://spdx.dev/Document",
-            json.loads((bundle / "sbom.spdx.json").read_text()),
+            package_sbom(bundle / "sbom.spdx.json"),
         ),
     ):
         verified = json.loads(
@@ -296,6 +342,7 @@ def publish(bundle):
             "toolchain-check.txt",
             "publication.json",
             "sbom.spdx.json",
+            "sbom.attestation.spdx.json",
             "sbom.syft.json",
             "vulnerabilities.json",
             "provenance.sigstore.json",

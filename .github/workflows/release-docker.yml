@@ -59,7 +59,7 @@ jobs:
         with:
           subject-name: ${{ steps.publication.outputs.subject }}
           subject-digest: ${{ steps.publication.outputs.digest }}
-          sbom-path: ${{ steps.build.outputs.bundle }}/sbom.spdx.json
+          sbom-path: ${{ steps.build.outputs.bundle }}/sbom.attestation.spdx.json
       - name: Publish verified assets and append the Git receipt
         env:
           GH_TOKEN: ${{ github.token }}

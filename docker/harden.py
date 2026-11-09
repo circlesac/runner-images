@@ -15,7 +15,8 @@ from security_inputs import fetch
 
 
 def download(item, destination):
-    data = fetch(item["url"])
+    cache = Path("/opt/runner-security-assets") / item["sha256"]
+    data = cache.read_bytes() if cache.is_file() else fetch(item["url"])
     if hashlib.sha256(data).hexdigest() != item["sha256"]:
         raise ValueError("replacement checksum mismatch")
     destination.write_bytes(data)
