@@ -3,6 +3,7 @@ FROM ${RUNNER_BASE}
 USER root
 ARG TARGETARCH
 ARG NODE_VERSION
+ARG NPM_VERSION
 ARG NODE_SHA256
 ARG ANDROID_URL
 ARG ANDROID_SHA1
@@ -42,6 +43,8 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && printf '%s\n' 'deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable' > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
+# Update the toolchain's own npm independently of bundled upstream runtimes.
+RUN npm install --global "npm@${NPM_VERSION}" && npm cache clean --force
 # runscaler starts /home/runner/run.sh. Each real runner distribution and its
 # workspace are copied into a unique daemon-visible shared-volume directory.
 RUN mv /home/runner /opt/actions-runner && mkdir /home/runner && chown runner:docker /home/runner

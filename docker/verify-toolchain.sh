@@ -8,6 +8,7 @@ test "$(id -un)" = runner
 for tool in git jq python3 node npm java docker sdkmanager make g++; do command -v "$tool"; done
 node --version
 npm --version
+npm --version
 java -version
 sdkmanager --version
 "$ANDROID_HOME/build-tools/36.0.0/aapt2" version
