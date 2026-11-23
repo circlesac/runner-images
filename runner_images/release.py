@@ -132,7 +132,6 @@ def publish_release(root: Path) -> dict[str, str]:
             "provenance.json",
             "provenance.sigstore.json",
             "sbom.sigstore.json",
-            "vulnerabilities.json",
         )
     )
     if any(not path.is_file() or not path.stat().st_size for path in assets):

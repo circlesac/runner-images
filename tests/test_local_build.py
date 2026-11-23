@@ -61,8 +61,6 @@ def local(example, monkeypatch):
                 bundle, image_directory, {**metadata, "image": image, "run_url": ""}
             )
             finalize(bundle, image_directory)
-        if command[0] == "grype" and state["fail"] == "scan":
-            raise subprocess.CalledProcessError(1, command)
         if command[:3] == ["git", "checkout", "-B"] and command[-1] == "origin/main":
             if state.get("new_inputs"):
                 workflow.write_text("updated synthetic finalizer")
@@ -354,7 +352,7 @@ fi
 if [[ $1 != -c ]]; then pwd >"$TEST_BOOTSTRAP_RESULT"; fi
 """,
     }
-    for name in ("tart", "jq", "grype"):
+    for name in ("tart", "jq"):
         scripts[name] = "#!/bin/bash\nexit 0\n"
     for name, content in scripts.items():
         path = tools / name
@@ -396,7 +394,7 @@ def test_other_factory_callback_is_never_invoked(local):
 
 def test_fixed_inputs_replace_failed_unpublished_build(local):
     root, state = local
-    state["fail"] = "scan"
+    state["fail"] = "upload"
     with pytest.raises(subprocess.CalledProcessError):
         local_build.rebuild(root, "xcode")
     journal = root / "artifacts/rebuild.json"
@@ -529,7 +527,7 @@ def test_bootstrap_refreshes_recoverable_source_and_preserves_publication(
             'exec "$TEST_PYTHON" "$@"\n'
         ),
     }
-    for tool in ("tart", "jq", "grype"):
+    for tool in ("tart", "jq"):
         scripts[tool] = "#!/bin/bash\nexit 0\n"
     for name, content in scripts.items():
         path = tools / name

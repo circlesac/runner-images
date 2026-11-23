@@ -57,7 +57,6 @@ def signed_assets(root):
     for name in (
         "provenance.sigstore.json",
         "sbom.sigstore.json",
-        "vulnerabilities.json",
     ):
         (workspace / name).write_text('{"synthetic":"signed validation boundary"}')
 

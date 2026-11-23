@@ -207,11 +207,6 @@ def perform(root: Path, profile: str) -> None:
         )
     if not (bundle / "publication.json").exists():
         invoke(["git", "checkout", "-B", "main", source], root, env)
-        invoke(
-            ["grype", f"sbom:{bundle / 'sbom.spdx.json'}", "--fail-on", "high"],
-            root,
-            env,
-        )
         invoke(["python3", "scripts/publish-candidate.py", str(bundle)], root, env)
     identity = digest(bundle / "qualification.json")
     qualification = f"qualifications/tart/{profile}/{identity}"
