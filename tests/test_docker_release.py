@@ -109,7 +109,7 @@ def candidate(tmp_path, monkeypatch, arch):
     def run(args, **kwargs):
         args = tuple(map(str, args))
         state["calls"].append(args)
-        if args[0] in ("syft", "grype"):
+        if args[0] == "syft":
             kwargs["stdout"].write(
                 json.dumps(
                     {
@@ -123,7 +123,7 @@ def candidate(tmp_path, monkeypatch, arch):
                 )
                 + "\n"
             )
-            if args[0] == "grype" and state["scan_failure"]:
+            if args[:2] == ("syft", "scan") and state["scan_failure"]:
                 raise subprocess.CalledProcessError(2, args)
         elif args[:3] == ("gh", "release", "create"):
             notes = Path(args[args.index("--notes-file") + 1]).read_text()
@@ -165,7 +165,7 @@ def sign(bundle):
         (bundle / name).write_text('{"synthetic":true}\n')
 
 
-def test_security_failure_never_pushes_or_creates_release(candidate):
+def test_sbom_failure_never_pushes_or_creates_release(candidate):
     bundle, state = candidate
     state["scan_failure"] = True
     with pytest.raises(subprocess.CalledProcessError):
@@ -325,16 +325,16 @@ def test_durable_receipt_uses_real_git_push_and_repeat_is_noop(
     assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == first
 
 
-def test_scanning_preserves_go_symbols_without_disabling_high_severity_gate(candidate):
+def test_sbom_preserves_go_symbols_and_runs_no_vulnerability_gate(candidate):
     bundle, state = candidate
     release.prepare("example:local", bundle)
     scan = next(call for call in state["calls"] if call[:2] == ("syft", "scan"))
     assert scan[-2:] == ("-o", "syft-json")
     assert "--config" in scan
     assert next(call for call in state["calls"] if call[:2] == ("syft", "convert"))
-    grype = next(call for call in state["calls"] if call[0] == "grype")
-    assert grype[1] == f"sbom:{bundle / 'sbom.syft.json'}"
-    assert grype[-2:] == ("--fail-on", "high")
+    # runner-images is exempt from the Circles vulnerability release gate.
+    assert not any(call[0] == "grype" for call in state["calls"])
+    assert not (bundle / "vulnerabilities.json").exists()
     assert (
         "capture-symbols: all"
         in Path(release.__file__).with_name("syft.yaml").read_text()

@@ -37,13 +37,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TART_REGISTRY_USERNAME: ${{ github.actor }}
         run: python3 scripts/release-tart.py prepare "$QUALIFICATION"
-      - uses: anchore/scan-action@v7.4.2
-        with:
-          sbom: ${{ steps.evidence.outputs.bundle }}/sbom.spdx.json
-          severity-cutoff: high
-          fail-build: true
-          output-format: json
-          output-file: artifacts/release/vulnerabilities.json
       - uses: actions/attest@v4.2.2
         id: provenance
         with:

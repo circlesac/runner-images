@@ -135,7 +135,6 @@ def prepare(image, bundle):
             "sbom.spdx.json",
             "sbom.attestation.spdx.json",
             "sbom.syft.json",
-            "vulnerabilities.json",
             "provenance.sigstore.json",
             "sbom.sigstore.json",
         )
@@ -184,8 +183,8 @@ def prepare(image, bundle):
             check=True,
             timeout=900,
         )
-    # SPDX is retained for standard attestations; Grype consumes the lossless
-    # Syft representation so symbol and package-location metadata survive.
+    # SPDX is retained for standard attestations; the lossless Syft report keeps
+    # symbol and package-location metadata for later vulnerability matching.
     with (bundle / "sbom.spdx.json").open("w") as output:
         subprocess.run(
             ["syft", "convert", str(bundle / "sbom.syft.json"), "-o", "spdx-json"],
@@ -194,20 +193,6 @@ def prepare(image, bundle):
             timeout=300,
         )
     write_attestation_sbom(bundle)
-    with (bundle / "vulnerabilities.json").open("w") as output:
-        subprocess.run(
-            [
-                "grype",
-                f"sbom:{bundle / 'sbom.syft.json'}",
-                "-o",
-                "json",
-                "--fail-on",
-                "high",
-            ],
-            stdout=output,
-            check=True,
-            timeout=900,
-        )
     target = f"ghcr.io/circlesac/runner-images/docker-ubuntu-24.04-android:q-{identity}"
     subprocess.run(["docker", "tag", image, target], check=True)
     subprocess.run(["docker", "push", target], check=True)
@@ -294,7 +279,6 @@ def publish(bundle):
         "sbom.spdx.json",
         "sbom.attestation.spdx.json",
         "sbom.syft.json",
-        "vulnerabilities.json",
     ):
         if not (bundle / name).is_file() or not (bundle / name).stat().st_size:
             raise ValueError("signed security evidence is incomplete")
@@ -357,7 +341,6 @@ def publish(bundle):
             "sbom.spdx.json",
             "sbom.attestation.spdx.json",
             "sbom.syft.json",
-            "vulnerabilities.json",
             "provenance.sigstore.json",
             "sbom.sigstore.json",
         )
