@@ -15,7 +15,10 @@ def build(inputs, destination):
     import hashlib
 
     destination.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "arm64"}
+    arch = os.environ["TARGETARCH"]
+    if arch not in ("arm64", "amd64"):
+        raise ValueError("unsupported target architecture")
+    env = {**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": arch}
     for name, source in inputs["sources"].items():
         work = Path("/tmp/security-build") / name
         work.mkdir(parents=True)

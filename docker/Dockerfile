@@ -1,5 +1,6 @@
 ARG RUNNER_BASE=ghcr.io/actions/actions-runner:latest
 FROM golang:1.27 AS patched-tools
+ARG TARGETARCH
 ARG SECURITY_INPUTS
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
 COPY docker/security_inputs.py docker/build-security-tools.py /build/
@@ -15,22 +16,30 @@ ARG ANDROID_URL
 ARG ANDROID_SHA1
 ENV ANDROID_HOME=/opt/android-sdk \
     ANDROID_SDK_ROOT=/opt/android-sdk \
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64 \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-${TARGETARCH} \
     PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/usr/local/bin:${PATH}
-RUN test "$TARGETARCH" = arm64 \
-    && sed -i '/^Types: deb$/a Architectures: arm64' /etc/apt/sources.list.d/ubuntu.sources \
+# Google's Linux Android SDK/NDK executables are x86-64. ARM64 builds add
+# amd64 multiarch libraries for them; AMD64 builds run them natively.
+RUN case "$TARGETARCH" in \
+       arm64) foreign='libc6:amd64 libstdc++6:amd64 zlib1g:amd64' ;; \
+       amd64) foreign='' ;; \
+       *) exit 1 ;; \
+    esac \
+    && if [ "$TARGETARCH" = arm64 ]; then sed -i '/^Types: deb$/a Architectures: arm64' /etc/apt/sources.list.d/ubuntu.sources \
     && printf '%s\n' 'Types: deb' 'URIs: http://archive.ubuntu.com/ubuntu/' \
        'Suites: noble noble-updates noble-backports' 'Components: main universe restricted multiverse' \
        'Architectures: amd64' 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' '' \
        'Types: deb' 'URIs: http://security.ubuntu.com/ubuntu/' 'Suites: noble-security' \
        'Components: main universe restricted multiverse' 'Architectures: amd64' \
        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' > /etc/apt/sources.list.d/amd64.sources \
-    && dpkg --add-architecture amd64 && apt-get update \
+    && dpkg --add-architecture amd64; fi \
+    && apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends libc6:amd64 libstdc++6:amd64 zlib1g:amd64 \
+    && apt-get install -y --no-install-recommends $foreign \
        openjdk-17-jdk-headless python3 rsync shellcheck make g++ unzip zip xz-utils \
     && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL --retry 5 "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-arm64.tar.xz" -o /tmp/node.tar.xz \
+RUN case "$TARGETARCH" in arm64) node_arch=arm64 ;; amd64) node_arch=x64 ;; *) exit 1 ;; esac \
+    && curl -fsSL --retry 5 "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${node_arch}.tar.xz" -o /tmp/node.tar.xz \
     && printf '%s  /tmp/node.tar.xz\n' "$NODE_SHA256" | sha256sum -c - \
     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 && rm /tmp/node.tar.xz \
     && curl -fsSL --retry 5 "$ANDROID_URL" -o /tmp/android.zip \
@@ -46,7 +55,7 @@ RUN sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk
 # container jobs; the Docker execution mode continues using its host socket.
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
-    && printf '%s\n' 'deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable' > /etc/apt/sources.list.d/docker.list \
+    && printf '%s\n' 'deb [arch=${TARGETARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable' > /etc/apt/sources.list.d/docker.list \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 # Update the toolchain's own npm independently of bundled upstream runtimes.

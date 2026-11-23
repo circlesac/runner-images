@@ -17,6 +17,15 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# Each architecture is qualified natively and published as its own digest under
+# one image name; GitHub releases keep a separate CalVer series per architecture.
+TAG_PREFIXES = {
+    "arm64": "docker-ubuntu-24.04-android@",
+    "amd64": "docker-ubuntu-24.04-android-amd64@",
+}
+DESCRIPTIONS = {"arm64": "ARM64", "amd64": "AMD64"}
+
+
 def checked_receipt(bundle):
     receipt = json.loads((bundle / "qualification.json").read_text())
     if receipt["status"] != "qualified" or receipt["profile"] != "ubuntu-24.04-android":
@@ -105,10 +114,14 @@ def prepare(image, bundle):
     ):
         raise ValueError("release must build the checked-out main revision")
     current = json.loads(command("docker", "image", "inspect", image))[0]
-    if current["Id"] != receipt["image"]["Id"] or (
-        current["Os"],
-        current["Architecture"],
-    ) != ("linux", "arm64"):
+    arch = receipt["image"].get("Architecture")
+    if (
+        arch not in TAG_PREFIXES
+        or current["Id"] != receipt["image"]["Id"]
+        or (current["Os"], current["Architecture"])
+        != (receipt["image"].get("Os"), arch)
+        or current["Os"] != "linux"
+    ):
         raise ValueError("qualified image identity/platform changed")
     release = existing(identity)
     if release is not None and not release["draft"]:
@@ -200,7 +213,7 @@ def prepare(image, bundle):
     subprocess.run(["docker", "push", target], check=True)
     subprocess.run(["docker", "pull", target], check=True)
     remote = json.loads(command("docker", "image", "inspect", target))[0]
-    if remote["Id"] != current["Id"]:
+    if remote["Id"] != current["Id"] or remote["Architecture"] != arch:
         raise ValueError("registry image differs from the qualified image")
     immutable = next(
         d
@@ -218,17 +231,17 @@ def prepare(image, bundle):
             "--source",
             "git",
             "--tag-prefix",
-            "docker-ubuntu-24.04-android@",
+            TAG_PREFIXES[arch],
             "--target",
             str(version_file),
         ).splitlines()[-1]
         if not re.fullmatch(r"[0-9]{2}\.[0-9]{1,2}\.[0-9]+", version):
             raise ValueError("invalid CalVer")
-        tag = f"docker-ubuntu-24.04-android@{version}"
+        tag = TAG_PREFIXES[arch] + version
         notes = bundle / "notes.md"
         notes.write_text(
             f"<!-- docker-qualification:{identity} -->\n"
-            "Ubuntu 24.04 ARM64 Android runner.\n\n"
+            f"Ubuntu 24.04 {DESCRIPTIONS[arch]} Android runner.\n\n"
             f"Pull: `docker pull {immutable}`\n\nSource: `{head}`. "
             "This image is intended for a runscaler Docker provider. "
             "Registry visibility is managed separately.\n"

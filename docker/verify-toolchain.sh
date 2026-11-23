@@ -3,7 +3,11 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source /etc/os-release
 test "$VERSION_ID" = 24.04
-test "$(uname -m)" = aarch64
+case "$(uname -m)" in
+aarch64) arch=arm64 ;;
+x86_64) arch=amd64 ;;
+*) exit 1 ;;
+esac
 test "$(id -un)" = runner
 for tool in git jq python3 node npm java docker sdkmanager make g++; do command -v "$tool"; done
 node --version
@@ -43,4 +47,4 @@ docker buildx version
 docker compose version
 containerd --version
 test -x /opt/actions-runner/bin/Runner.Listener
-printf 'native-arm64-android-toolchain-passed\n'
+printf 'native-%s-android-toolchain-passed\n' "$arch"

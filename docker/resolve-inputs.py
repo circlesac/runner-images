@@ -1,10 +1,15 @@
 """Resolve official moving inputs before building; retain their checksums."""
 
 import json
+import sys
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
-from security_inputs import resolve
+from security_inputs import NODE_ARCH, resolve
+
+arch = sys.argv[1]
+if arch not in NODE_ARCH:
+    raise SystemExit("usage: resolve-inputs.py arm64|amd64")
 
 
 def fetch(url):
@@ -15,7 +20,7 @@ def fetch(url):
 npm = json.loads(fetch("https://registry.npmjs.org/npm/latest"))
 versions = json.loads(fetch("https://nodejs.org/dist/index.json"))
 node = next(v["version"] for v in versions if v["lts"])
-filename = f"node-{node}-linux-arm64.tar.xz"
+filename = f"node-{node}-linux-{NODE_ARCH[arch]}.tar.xz"
 checksums = fetch(f"https://nodejs.org/dist/{node}/SHASUMS256.txt").decode()
 node_sha = next(
     line.split()[0] for line in checksums.splitlines() if line.split()[-1] == filename
@@ -33,7 +38,7 @@ print(
             "node_version": node,
             "npm_version": npm["version"],
             "security_inputs": json.dumps(
-                resolve(versions, npm["version"]), sort_keys=True
+                resolve(versions, npm["version"], arch), sort_keys=True
             ),
             "node_sha256": node_sha,
             "android_url": "https://dl.google.com/android/repository/"
