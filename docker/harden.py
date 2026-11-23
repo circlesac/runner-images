@@ -134,6 +134,11 @@ def harden(inputs):
             raise ValueError("replacement Node runtime is incomplete")
         shutil.rmtree(runtime)
         shutil.copytree(source, runtime)
+        # The AMD64 runner also ships musl runtimes for Alpine job containers.
+        # They cannot run or be patched on this glibc image, and the ARM64
+        # runner never ships them, so both architectures keep the same contract.
+        for musl in sorted((runner / "externals").glob("node*_alpine")):
+            shutil.rmtree(musl)
         for runtime in sorted((runner / "externals").glob("node*")):
             if not (runtime / "bin/node").is_file():
                 continue

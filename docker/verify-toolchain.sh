@@ -17,6 +17,7 @@ sdkmanager --version
 "$ANDROID_HOME/build-tools/36.0.0/aapt2" version
 test -x "$ANDROID_HOME/ndk/27.1.12297006/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
 # Exercise patched embedded runtimes and the non-root runner staging contract.
+if compgen -G '/opt/actions-runner/externals/*_alpine' >/dev/null; then exit 1; fi
 for runtime in /opt/actions-runner/externals/node*/bin/node; do
 	"$runtime" --version
 	"$runtime" "${runtime%/bin/node}/lib/node_modules/npm/bin/npm-cli.js" --version
