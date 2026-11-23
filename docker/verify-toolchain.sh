@@ -48,4 +48,8 @@ docker buildx version
 docker compose version
 containerd --version
 test -x /opt/actions-runner/bin/Runner.Listener
+# Replaced app-local ASP.NET assemblies must keep Runner.Worker's host manifest
+# loadable: without arguments it reaches managed argument validation and stops.
+if /opt/actions-runner/bin/Runner.Worker >"$work/worker.log" 2>&1; then exit 1; fi
+grep -q 'GitHub.Runner.Worker.Program' "$work/worker.log"
 printf 'native-%s-android-toolchain-passed\n' "$arch"

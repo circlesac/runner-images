@@ -1,5 +1,6 @@
 """Resolve checksum-bound security replacements for bundled build tools."""
 
+import base64
 import hashlib
 import json
 import os
@@ -73,13 +74,50 @@ def maven(group, artifact, major):
 NODE_ARCH = {"arm64": "arm64", "amd64": "x64"}
 
 
-def resolve(node_versions, npm_version, arch):
-    node = next(v["version"] for v in node_versions if v["version"].startswith("v22."))
+def node_archive(node_versions, major, arch):
+    """Newest official release of one Node major, bound to its SHA256."""
+    node = next(
+        v["version"] for v in node_versions if v["version"].startswith(f"v{major}.")
+    )
     filename = f"node-{node}-linux-{NODE_ARCH[arch]}.tar.xz"
     sums = fetch(f"https://nodejs.org/dist/{node}/SHASUMS256.txt").decode()
     checksum = next(
         line.split()[0] for line in sums.splitlines() if line.split()[-1] == filename
     )
+    return {
+        "version": node,
+        "url": f"https://nodejs.org/dist/{node}/{filename}",
+        "sha256": checksum,
+    }
+
+
+def nuget(package, major):
+    """Newest stable NuGet release of one major, bound to the catalog SHA512."""
+    lower = package.lower()
+    versions = json.loads(
+        fetch(f"https://api.nuget.org/v3-flatcontainer/{lower}/index.json")
+    )["versions"]
+    version = max(
+        (v for v in versions if re.fullmatch(rf"{major}\.\d+\.\d+", v)),
+        key=lambda v: tuple(int(x) for x in v.split(".")),
+    )
+    leaf = json.loads(
+        fetch(f"https://api.nuget.org/v3/registration5-semver1/{lower}/{version}.json")
+    )
+    catalog = json.loads(fetch(leaf["catalogEntry"]))
+    data = fetch(leaf["packageContent"])
+    sha512 = base64.b64encode(hashlib.sha512(data).digest()).decode()
+    if catalog["packageHashAlgorithm"] != "SHA512" or catalog["packageHash"] != sha512:
+        raise ValueError("NuGet package differs from its catalog hash: " + package)
+    return {
+        "version": version,
+        "url": leaf["packageContent"],
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "sha512": sha512,
+    }
+
+
+def resolve(node_versions, npm_version, arch):
     python_release = github("astral-sh/python-build-standalone", "releases/latest")
     python = next(
         a
@@ -103,12 +141,19 @@ def resolve(node_versions, npm_version, arch):
             "sha256": hashlib.sha256(fetch(url)).hexdigest(),
         }
     return {
-        "node_compat": {
-            "version": node,
-            "url": f"https://nodejs.org/dist/{node}/{filename}",
-            "sha256": checksum,
-        },
+        # Runner slot -> patched Node release. The node20 slot keeps its
+        # established Node 22 replacement; node24 follows the newest 24.x.
+        "node_compat": node_archive(node_versions, 22, arch),
+        "node24": node_archive(node_versions, 24, arch),
         "npm_version": npm_version,
+        # Runner.Worker's ASP.NET helpers, matching upstream's unreleased bump.
+        "nuget": {
+            name: nuget(name, "8")
+            for name in (
+                "Microsoft.AspNetCore.WebUtilities",
+                "Microsoft.Net.Http.Headers",
+            )
+        },
         "python": {**asset(python), "release": python_release["tag_name"]},
         "sources": sources,
         "go_modules": {

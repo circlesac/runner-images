@@ -232,3 +232,144 @@ def test_cached_asset_is_verified_without_an_image_build_credential(
     with pytest.raises(ValueError, match="checksum"):
         hardening.download(item, target)
     assert target.read_bytes() == data
+
+
+def nuget_catalog(monkeypatch, package_bytes, catalog_hash=None):
+    import base64
+    import hashlib
+    import json
+
+    import security_inputs
+
+    digest = base64.b64encode(hashlib.sha512(package_bytes).digest()).decode()
+
+    def fetch(url):
+        if url.endswith("/index.json"):
+            return json.dumps(
+                {"versions": ["8.0.9", "8.0.34", "8.0.100-rc.1", "9.0.1"]}
+            ).encode()
+        if "/registration5-semver1/" in url:
+            return json.dumps(
+                {
+                    "catalogEntry": "https://api.nuget.org/v3/catalog0/entry.json",
+                    "packageContent": "https://api.nuget.org/example.8.0.34.nupkg",
+                }
+            ).encode()
+        if url.endswith("/entry.json"):
+            return json.dumps(
+                {
+                    "packageHashAlgorithm": "SHA512",
+                    "packageHash": catalog_hash or digest,
+                }
+            ).encode()
+        return package_bytes
+
+    monkeypatch.setattr(security_inputs, "fetch", fetch)
+    return security_inputs, digest
+
+
+def test_nuget_resolution_keeps_major_and_binds_the_catalog_hash(monkeypatch):
+    import hashlib
+
+    security_inputs, digest = nuget_catalog(monkeypatch, b"verified package")
+    value = security_inputs.nuget("Example.Package", "8")
+    assert value["version"] == "8.0.34"
+    assert value["sha512"] == digest
+    assert value["sha256"] == hashlib.sha256(b"verified package").hexdigest()
+
+
+def test_nuget_package_differing_from_catalog_is_rejected(monkeypatch):
+    security_inputs, _ = nuget_catalog(monkeypatch, b"tampered", catalog_hash="x")
+    with pytest.raises(ValueError, match="catalog hash"):
+        security_inputs.nuget("Example.Package", "8")
+
+
+def pe_with_version(major, minor, build, revision):
+    import struct
+
+    return (
+        b"MZ-synthetic"
+        + struct.pack(
+            "<4I", 0xFEEF04BD, 0x10000, major << 16 | minor, build << 16 | revision
+        )
+        + b"tail"
+    )
+
+
+def test_runner_assembly_upgrade_rewrites_every_deps_reference(tmp_path, monkeypatch):
+    import json
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    old = "8.0.25"
+    deps = {
+        "targets": {
+            ".NETCoreApp,Version=v8.0": {},
+            ".NETCoreApp,Version=v8.0/linux-x64": {
+                "Runner.Worker/1.0.0": {"dependencies": {"Example.Web": old}},
+                f"Example.Web/{old}": {
+                    "dependencies": {"Example.Headers": old},
+                    "runtime": {
+                        "lib/net8.0/Example.Web.dll": {
+                            "assemblyVersion": "8.0.0.0",
+                            "fileVersion": "8.0.2526.1",
+                        }
+                    },
+                },
+                f"Example.Headers/{old}": {
+                    "runtime": {
+                        "lib/net8.0/Example.Headers.dll": {
+                            "assemblyVersion": "8.0.0.0",
+                            "fileVersion": "8.0.2526.1",
+                        }
+                    }
+                },
+            },
+        },
+        "libraries": {
+            f"Example.{name}/{old}": {
+                "type": "package",
+                "sha512": "sha512-old",
+                "path": f"example.{name.lower()}/{old}",
+            }
+            for name in ("Web", "Headers")
+        },
+    }
+    (bin_dir / "Runner.Worker.deps.json").write_text(json.dumps(deps))
+    packages, archives = {}, {}
+    for name in ("Example.Web", "Example.Headers"):
+        packages[name] = {"version": "8.0.34", "sha512": "new-" + name}
+        archives[id(packages[name])] = jar(
+            tmp_path / f"{name}.nupkg",
+            {f"lib/net8.0/{name}.dll": pe_with_version(8, 0, 3426, 7)},
+        )
+    monkeypatch.setattr(
+        hardening, "download", lambda item, destination: archives[id(item)]
+    )
+    hardening.upgrade_runner_assemblies(bin_dir, packages, tmp_path)
+    text = (bin_dir / "Runner.Worker.deps.json").read_text()
+    assert old not in text
+    result = json.loads(text)
+    target = result["targets"][".NETCoreApp,Version=v8.0/linux-x64"]
+    assert target["Runner.Worker/1.0.0"]["dependencies"]["Example.Web"] == "8.0.34"
+    web = target["Example.Web/8.0.34"]
+    assert web["dependencies"]["Example.Headers"] == "8.0.34"
+    assert web["runtime"]["lib/net8.0/Example.Web.dll"]["fileVersion"] == "8.0.3426.7"
+    library = result["libraries"]["Example.Headers/8.0.34"]
+    assert library["sha512"] == "sha512-new-Example.Headers"
+    assert library["path"] == "example.headers/8.0.34"
+    assert (bin_dir / "Example.Web.dll").read_bytes() == pe_with_version(8, 0, 3426, 7)
+
+
+def test_runner_assembly_upgrade_refuses_an_unexpected_reference(tmp_path):
+    import json
+
+    (tmp_path / "Runner.Worker.deps.json").write_text(
+        json.dumps({"targets": {}, "libraries": {}})
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        hardening.upgrade_runner_assemblies(
+            tmp_path, {"Example.Web": {"version": "8.0.34"}}, tmp_path
+        )
+    with pytest.raises(ValueError, match="fixed file version"):
+        hardening.file_version(b"MZ-no-version")
