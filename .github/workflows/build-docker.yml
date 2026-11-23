@@ -10,11 +10,21 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
+      # Google's Linux Android executables are x86-64; only ARM64 needs emulation.
       - uses: docker/setup-qemu-action@v4
+        if: matrix.arch == 'arm64'
         with:
           platforms: amd64
       - name: Build and qualify the actual native image
@@ -24,6 +34,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: docker-image-qualification
+          name: docker-image-qualification-${{ matrix.arch }}
           path: artifacts/docker/
           retention-days: 7

@@ -17,8 +17,13 @@ release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 
 
+@pytest.fixture(params=["arm64"])
+def arch(request):
+    return request.param
+
+
 @pytest.fixture
-def candidate(tmp_path, monkeypatch):
+def candidate(tmp_path, monkeypatch, arch):
     monkeypatch.chdir(tmp_path)
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -29,7 +34,7 @@ def candidate(tmp_path, monkeypatch):
         "status": "qualified",
         "profile": "ubuntu-24.04-android",
         "source_commit": "a" * 40,
-        "image": {"Id": "sha256:" + "1" * 64},
+        "image": {"Id": "sha256:" + "1" * 64, "Os": "linux", "Architecture": arch},
         "evidence": {p.name: release.file_hash(p) for p in bundle.iterdir()},
     }
     (bundle / "qualification.json").write_text(json.dumps(receipt))
@@ -42,6 +47,7 @@ def candidate(tmp_path, monkeypatch):
         "asset_failure": False,
         "branch": "main",
         "remote_failure": False,
+        "platform_failure": False,
     }
 
     def command(*args, **kwargs):
@@ -59,7 +65,11 @@ def candidate(tmp_path, monkeypatch):
                     {
                         "Id": "sha256:" + image_id,
                         "Os": "linux",
-                        "Architecture": "arm64",
+                        "Architecture": (
+                            "amd64"
+                            if arch == "arm64" and state["platform_failure"]
+                            else arch
+                        ),
                         "RepoDigests": [
                             "ghcr.io/circlesac/runner-images/docker-ubuntu-24.04-android@sha256:"
                             + "2" * 64
@@ -164,7 +174,9 @@ def test_security_failure_never_pushes_or_creates_release(candidate):
     assert state["release"] is None
 
 
-@pytest.mark.parametrize("fault", ["tamper", "missing", "symlink", "branch", "remote"])
+@pytest.mark.parametrize(
+    "fault", ["tamper", "missing", "symlink", "branch", "remote", "platform"]
+)
 def test_invalid_evidence_or_identity_never_creates_a_release(candidate, fault):
     bundle, state = candidate
     if fault == "tamper":
@@ -178,6 +190,8 @@ def test_invalid_evidence_or_identity_never_creates_a_release(candidate, fault):
         (bundle / "inputs.json").symlink_to(bundle / "image.json")
     elif fault == "branch":
         state["branch"] = "feature"
+    elif fault == "platform":
+        state["platform_failure"] = True
     else:
         state["remote_failure"] = True
     with pytest.raises(ValueError):
@@ -235,6 +249,41 @@ def test_publish_and_replay_keep_original_signed_assets(candidate):
         len([call for call in state["calls"] if call[:2] == ("docker", "push")])
         == original_pushes
     )
+
+
+@pytest.mark.parametrize(
+    ("arch", "prefix", "description"),
+    [
+        ("arm64", "docker-ubuntu-24.04-android@", "ARM64"),
+        ("amd64", "docker-ubuntu-24.04-android-amd64@", "AMD64"),
+    ],
+    indirect=["arch"],
+)
+def test_each_architecture_publishes_its_own_digest_and_release_series(
+    candidate, prefix, description
+):
+    bundle, state = candidate
+    release.prepare("example:local", bundle)
+    oneup = next(call for call in state["calls"] if call[0] == "npx")
+    assert oneup[oneup.index("--tag-prefix") + 1] == prefix
+    assert state["release"]["tag_name"] == prefix + "26.11.0"
+    assert f"Ubuntu 24.04 {description} Android runner." in state["release"]["body"]
+    push = next(call for call in state["calls"] if call[:2] == ("docker", "push"))
+    assert push[2].startswith(
+        "ghcr.io/circlesac/runner-images/docker-ubuntu-24.04-android:q-"
+    )
+    publication = json.loads((bundle / "publication.json").read_text())
+    assert publication["reference"].startswith(
+        "ghcr.io/circlesac/runner-images/docker-ubuntu-24.04-android@sha256:"
+    )
+
+
+@pytest.mark.parametrize("arch", ["riscv64"], indirect=True)
+def test_unsupported_architecture_never_publishes(candidate):
+    bundle, state = candidate
+    with pytest.raises(ValueError, match="platform"):
+        release.prepare("example:local", bundle)
+    assert state["release"] is None
 
 
 def test_durable_receipt_uses_real_git_push_and_repeat_is_noop(

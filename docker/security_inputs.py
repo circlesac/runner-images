@@ -69,9 +69,13 @@ def maven(group, artifact, major):
     }
 
 
-def resolve(node_versions, npm_version):
+# Docker platform architecture -> official Node.js Linux archive architecture.
+NODE_ARCH = {"arm64": "arm64", "amd64": "x64"}
+
+
+def resolve(node_versions, npm_version, arch):
     node = next(v["version"] for v in node_versions if v["version"].startswith("v22."))
-    filename = f"node-{node}-linux-arm64.tar.xz"
+    filename = f"node-{node}-linux-{NODE_ARCH[arch]}.tar.xz"
     sums = fetch(f"https://nodejs.org/dist/{node}/SHASUMS256.txt").decode()
     checksum = next(
         line.split()[0] for line in sums.splitlines() if line.split()[-1] == filename
