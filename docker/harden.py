@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -119,21 +120,70 @@ def upgrade_sdk_jar(android, name, replacement, version):
     old.unlink()
 
 
+def file_version(data):
+    """Read VS_FIXEDFILEINFO.dwFileVersion from a PE image."""
+    offset = data.find(b"\xbd\x04\xef\xfe")
+    if offset < 0:
+        raise ValueError("assembly has no fixed file version")
+    _, _, high, low = struct.unpack_from("<4I", data, offset)
+    return f"{high >> 16}.{high & 0xFFFF}.{low >> 16}.{low & 0xFFFF}"
+
+
+def upgrade_runner_assemblies(bin_dir, packages, work):
+    """Replace app-local NuGet assemblies and keep the runner's deps.json exact."""
+    manifest = bin_dir / "Runner.Worker.deps.json"
+    deps = json.loads(manifest.read_text())
+    old_versions = {}
+    for name in packages:
+        keys = [k for k in deps["libraries"] if k.startswith(name + "/")]
+        if len(keys) != 1:
+            raise ValueError("runner does not reference exactly one " + name)
+        old_versions[name] = keys[0].split("/", 1)[1]
+    for name, item in packages.items():
+        old, new = old_versions[name], item["version"]
+        archive = download(item, work / (name + ".nupkg"))
+        member = f"lib/net8.0/{name}.dll"
+        with zipfile.ZipFile(archive) as package:
+            data = package.read(member)
+        (bin_dir / (name + ".dll")).write_bytes(data)
+        for target in deps["targets"].values():
+            entry = target.pop(f"{name}/{old}", None)
+            if entry is None:
+                continue
+            entry["runtime"][member]["fileVersion"] = file_version(data)
+            target[f"{name}/{new}"] = entry
+            for other in target.values():
+                dependencies = other.get("dependencies", {})
+                if dependencies.get(name) == old:
+                    dependencies[name] = new
+        library = deps["libraries"].pop(f"{name}/{old}")
+        library.update(
+            sha512="sha512-" + item["sha512"],
+            path=f"{name.lower()}/{new}",
+            hashPath=f"{name.lower()}.{new}.nupkg.sha512",
+        )
+        deps["libraries"][f"{name}/{new}"] = library
+    manifest.write_text(json.dumps(deps, indent=2) + "\n")
+
+
 def harden(inputs):
     with tempfile.TemporaryDirectory(prefix="runner-security-") as temporary:
         work = Path(temporary)
         runner = Path("/opt/actions-runner")
-        node_archive = download(inputs["node_compat"], work / "node.tar.xz")
-        runtime = runner / "externals/node20"
-        with tarfile.open(node_archive) as stream:
-            stream.extractall(work / "node", filter="data")
-        source = next((work / "node").iterdir())
-        # OverlayFS cannot rename a populated directory from a lower image layer.
-        # The verified replacement is extracted before discarding the old runtime.
-        if not (source / "bin/node").is_file():
-            raise ValueError("replacement Node runtime is incomplete")
-        shutil.rmtree(runtime)
-        shutil.copytree(source, runtime)
+        for slot, key in (("node20", "node_compat"), ("node24", "node24")):
+            node_archive = download(inputs[key], work / (slot + ".tar.xz"))
+            runtime = runner / "externals" / slot
+            with tarfile.open(node_archive) as stream:
+                stream.extractall(work / slot, filter="data")
+            source = next((work / slot).iterdir())
+            # OverlayFS cannot rename a populated directory from a lower image
+            # layer. The verified replacement is extracted before discarding
+            # the old runtime.
+            if not (source / "bin/node").is_file():
+                raise ValueError("replacement Node runtime is incomplete")
+            shutil.rmtree(runtime)
+            shutil.copytree(source, runtime)
+        upgrade_runner_assemblies(runner / "bin", inputs["nuget"], work)
         # The AMD64 runner also ships musl runtimes for Alpine job containers.
         # They cannot run or be patched on this glibc image, and the ARM64
         # runner never ships them, so both architectures keep the same contract.
@@ -198,8 +248,11 @@ def harden(inputs):
         )
         for name in ["bcprov-jdk18on", "guava"]:
             upgrade_sdk_jar(android, name, jars[name], versions[name])
-        for cache in Path("/root/.android/cli/bundles").glob("*/main.jar"):
-            patch_jar(cache, {"guava": jars["guava"]}, versions)
+        # sdkmanager now delegates to the Android CLI, which downloads a bundle
+        # (main.jar plus its own JRE) into the invoking user's ~/.android/cli.
+        # The build ran it as root; jobs run as runner and fetch their own, so
+        # root's copy is an unused, unpatchable build cache.
+        shutil.rmtree(Path("/root/.android/cli"), ignore_errors=True)
         tools = Path("/opt/runner-security-tools")
         for output, paths in {
             "docker-buildx": [

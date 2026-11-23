@@ -68,9 +68,11 @@ def build(inputs, destination):
             "compose": [("./cmd", "docker-compose")],
             "containerd": [("./cmd/containerd", "containerd"), ("./cmd/ctr", "ctr")],
         }
+        # SemVer build metadata keeps the rebuild visible without turning the
+        # upstream release into a pre-release that scanners order before it.
         flags = (
-            f"-X {module}/version.Version={source['version']}-security "
-            f"-X {module}/internal.Version={source['version']}-security"
+            f"-X {module}/version.Version={source['version']}+security "
+            f"-X {module}/internal.Version={source['version']}+security"
         )
         for package, output in targets[name]:
             subprocess.run(
