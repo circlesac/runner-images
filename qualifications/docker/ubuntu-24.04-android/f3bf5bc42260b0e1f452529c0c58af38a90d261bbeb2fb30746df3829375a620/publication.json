@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "qualification_sha256": "f3bf5bc42260b0e1f452529c0c58af38a90d261bbeb2fb30746df3829375a620",
+  "reference": "ghcr.io/circlesac/runner-images/docker-ubuntu-24.04-android@sha256:75fb2973b509d16942e5b3bf64dec57cfa56c83d359f0ee85e3a096e03b795d7",
+  "source_commit": "66904ce97b7267f858ee67039021209e8e861323",
+  "tag": "docker-ubuntu-24.04-android-amd64@26.11.0"
+}

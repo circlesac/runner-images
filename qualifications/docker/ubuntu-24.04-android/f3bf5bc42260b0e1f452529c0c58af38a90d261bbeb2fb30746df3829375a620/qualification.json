@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "status": "qualified",
+  "source_commit": "66904ce97b7267f858ee67039021209e8e861323",
+  "base": "ghcr.io/actions/actions-runner@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300",
+  "image": {
+    "Id": "sha256:74d11a6719a559828edeb4f79a8810872f518c9292ae15856e4311010a565bcf",
+    "Architecture": "amd64",
+    "Os": "linux"
+  },
+  "profile": "ubuntu-24.04-android",
+  "evidence": {
+    "toolchain-check.txt": "799c0ee8df530b78e04a80f7c92dd3f605331a2c66789e2c07a1b413742bea2e",
+    "image.json": "021cea8d8dfb92c2cf701707e3fa28000922efb6b10d9509543e972ef1e22481",
+    "inventory.json": "21bc5b579813db7d8402b5941342ddd9fbfe811b58de0b1cb0ef2ebe0ed16354",
+    "inputs.json": "1cf9185870ac488c75fd2464e32ef2f241e415c3889532b9d8ec1cd894af6420"
+  }
+}
