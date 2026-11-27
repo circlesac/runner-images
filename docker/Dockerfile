@@ -62,7 +62,11 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 RUN npm install --global "npm@${NPM_VERSION}" && npm cache clean --force
 # runscaler starts /home/runner/run.sh. Each real runner distribution and its
 # workspace are copied into a unique daemon-visible shared-volume directory.
-RUN mv /home/runner /opt/actions-runner && mkdir /home/runner && chown runner:docker /home/runner
+# Hosts may mount persistent Cargo download caches at ~/.cargo/registry and
+# ~/.cargo/git. Own the parent here so Docker does not create it as root, which
+# would stop rustup from creating ~/.cargo/bin; new volumes copy this ownership.
+RUN mv /home/runner /opt/actions-runner && mkdir /home/runner && chown runner:docker /home/runner \
+    && install -d -o runner -g docker /home/runner/.cargo /home/runner/.cargo/registry /home/runner/.cargo/git
 COPY --from=patched-tools /out/ /opt/runner-security-tools/
 COPY docker/security_inputs.py docker/harden.py /opt/runner-hardening/
 RUN --mount=type=bind,source=docker/security-assets,target=/opt/runner-security-assets \

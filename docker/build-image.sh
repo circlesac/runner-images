@@ -39,6 +39,12 @@ docker build --platform "linux/$arch" --pull --build-arg "RUNNER_BASE=$base" "${
 # Registration files must be absent in the shipped image; active runtime
 # smoke checks legitimately have a JIT registration in this directory.
 docker run --rm "$image" /bin/bash -c 'test ! -e /opt/actions-runner/.credentials && test ! -e /opt/actions-runner/.runner'
+# Fresh named volumes at the Cargo cache paths must leave ~/.cargo writable by
+# the runner, as on a host that mounts persistent Cargo download caches.
+cargo_volume="runner-images-cargo-check-$$"
+docker run --rm -v "$cargo_volume-registry:/home/runner/.cargo/registry" -v "$cargo_volume-git:/home/runner/.cargo/git" "$image" \
+	/bin/bash -c 'set -e; mkdir "$HOME/.cargo/bin"; touch "$HOME/.cargo/registry/check" "$HOME/.cargo/git/check"'
+docker volume rm "$cargo_volume-registry" "$cargo_volume-git" >/dev/null
 docker run --rm "$image" /usr/local/bin/verify-runner-toolchain >"$bundle/toolchain-check.txt" 2>&1
 docker run --rm "$image" python3 /opt/runner-inventory/scripts/inventory.py >"$bundle/inventory.json"
 docker image inspect "$image" --format '{{json .}}' | python3 -c 'import json,sys; x=json.load(sys.stdin); print(json.dumps({k:x[k] for k in ["Id","Architecture","Os"]}))' >"$bundle/image.json"
